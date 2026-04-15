@@ -260,6 +260,34 @@ function registerAuthRoutes(app) {
   });
   // ── Admin-only routes ──────────────────────────────────────────
 
+  // POST /api/admin/create-user — admin creates account directly (no invite needed)
+  app.post('/api/admin/create-user', requireAuth, requireAdmin, async (req, res) => {
+    const { username, email, password, role = 'user' } = req.body || {};
+
+    if (!username?.trim() || !email?.trim() || !password)
+      return res.status(400).json({ error: 'username, email and password are required' });
+    if (password.length < 10)
+      return res.status(400).json({ error: 'Password must be at least 10 characters' });
+    if (!/^[a-zA-Z0-9_-]{3,30}$/.test(username))
+      return res.status(400).json({ error: 'Username: 3-30 characters, letters/numbers/_ or - only' });
+    if (!['user','admin'].includes(role))
+      return res.status(400).json({ error: 'Invalid role' });
+
+    try {
+      const id   = crypto.randomUUID();
+      const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      await dbRun(
+        `INSERT INTO users (id, username, email, password_hash, role) VALUES (?, ?, ?, ?, ?)`,
+        [id, username.trim(), email.trim().toLowerCase(), hash, role]
+      );
+      res.status(201).json({ ok: true, id, username: username.trim(), email: email.trim(), role });
+    } catch (err) {
+      if (err.message?.includes('UNIQUE'))
+        return res.status(409).json({ error: 'Username or email already exists' });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/admin/users
   app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     try {

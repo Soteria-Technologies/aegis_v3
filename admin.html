@@ -149,6 +149,24 @@ html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:va
 /* ── Scrollbar ── */
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-thumb{background:var(--border);}
+
+/* ── Responsive two-col ── */
+@media(max-width:700px){
+  .top-grid{grid-template-columns:1fr!important;}
+}
+
+/* ── Link view modal ── */
+.link-modal{max-width:560px;}
+.link-box{
+  background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,0.1);
+  padding:12px;font-size:10px;color:var(--amber);
+  word-break:break-all;letter-spacing:.5px;line-height:1.6;
+  margin:4px 0;
+}
+.pw-strength{font-size:8px;letter-spacing:1px;margin-top:3px;}
+.pw-strength--weak{color:#f87171;}
+.pw-strength--ok  {color:var(--amber);}
+.pw-strength--good{color:var(--green);}
 </style>
 </head>
 <body>
@@ -170,49 +188,100 @@ html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:va
 <div class="layout">
   <div class="page-title">ADMIN PANEL — <span>USER MANAGEMENT</span></div>
 
-  <!-- Create invite -->
+  <!-- Two-column top row: invite link + direct creation -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+  <!-- Create invite link -->
   <div class="card">
     <div class="card__head">
       <div class="card__head-left">
         <div class="card__accent"></div>
-        CREATE INVITE LINK
+        INVITE LINK
       </div>
+      <span style="font-size:8px;color:var(--muted);letter-spacing:1px;">User sets own password</span>
     </div>
-    <div class="card__body">
-      <div class="form-row">
-        <div class="form-field" style="flex:2;">
-          <div class="form-label">EMAIL ADDRESS</div>
-          <input class="form-input" id="invite-email" type="email" placeholder="user@domain.com"
-            onkeydown="if(event.key==='Enter')createInvite()">
-        </div>
-        <div class="form-field" style="max-width:140px;">
-          <div class="form-label">EXPIRES IN</div>
-          <select class="form-select" id="invite-expires">
-            <option value="1">1 day</option>
-            <option value="3">3 days</option>
-            <option value="7" selected>7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </div>
-        <div style="display:flex;align-items:flex-end;">
-          <button class="btn btn--amber" id="invite-btn" onclick="createInvite()">GENERATE LINK →</button>
-        </div>
+    <div class="card__body" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-field">
+        <div class="form-label">EMAIL ADDRESS</div>
+        <input class="form-input" id="invite-email" type="email" placeholder="user@domain.com"
+          onkeydown="if(event.key==='Enter')createInvite()">
       </div>
-
+      <div class="form-field">
+        <div class="form-label">EXPIRES IN</div>
+        <select class="form-select" id="invite-expires">
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+      </div>
+      <button class="btn btn--amber" id="invite-btn" onclick="createInvite()">GENERATE LINK →</button>
       <div class="status-msg" id="invite-status"></div>
 
+      <!-- Result box -->
       <div class="invite-result" id="invite-result">
-        <div style="font-size:8px;letter-spacing:2px;color:var(--muted);margin-bottom:4px;">INVITE URL — SHARE THIS WITH THE USER</div>
+        <div style="font-size:8px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">INVITE URL — SHARE WITH USER</div>
         <div class="invite-url" id="invite-url-text"></div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="invite-copy" id="copy-btn" onclick="copyInviteUrl()">⎘ COPY URL</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+          <button class="invite-copy" id="copy-btn" onclick="copyInviteUrl('invite-url-text','copy-btn')">⎘ COPY</button>
           <span style="font-size:8px;color:var(--dim);">Expires: <span id="invite-expires-label"></span></span>
           <span style="font-size:8px;color:var(--dim);">For: <span id="invite-email-label" style="color:var(--muted);"></span></span>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- Direct user creation -->
+  <div class="card">
+    <div class="card__head">
+      <div class="card__head-left">
+        <div class="card__accent" style="background:var(--green);"></div>
+        CREATE USER DIRECTLY
+      </div>
+      <span style="font-size:8px;color:var(--muted);letter-spacing:1px;">Admin sets credentials</span>
+    </div>
+    <div class="card__body" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="form-field">
+        <div class="form-label">USERNAME</div>
+        <input class="form-input" id="dc-username" type="text" placeholder="3-30 chars, letters/numbers/_/-"
+          autocomplete="off">
+      </div>
+      <div class="form-field">
+        <div class="form-label">EMAIL</div>
+        <input class="form-input" id="dc-email" type="email" placeholder="user@domain.com"
+          autocomplete="off">
+      </div>
+      <div class="form-field">
+        <div class="form-label">PASSWORD (min 10 chars)</div>
+        <div style="position:relative;">
+          <input class="form-input" id="dc-password" type="password" placeholder="••••••••••"
+            autocomplete="new-password" onkeydown="if(event.key==='Enter')createUserDirect()"
+            style="padding-right:60px;">
+          <button onclick="togglePwVis('dc-password',this)"
+            style="position:absolute;right:8px;top:50%;transform:translateY(-50%);
+              background:none;border:none;color:var(--muted);font-family:var(--font);
+              font-size:8px;cursor:pointer;letter-spacing:1px;padding:2px 4px;">SHOW</button>
+        </div>
+      </div>
+      <div class="form-field">
+        <div class="form-label">ROLE</div>
+        <select class="form-select" id="dc-role">
+          <option value="user" selected>User</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn" style="border-color:var(--green);color:var(--green);"
+        id="dc-btn" onclick="createUserDirect()"
+        onmouseover="this.style.background='var(--green)';this.style.color='#000'"
+        onmouseout="this.style.background='transparent';this.style.color='var(--green)'">
+        CREATE USER →
+      </button>
+      <div class="status-msg" id="dc-status"></div>
+    </div>
+  </div>
+
+  </div><!-- /two-column -->
 
   <!-- Active invites -->
   <div class="card">
@@ -228,11 +297,11 @@ html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:va
         <table class="table" id="invites-table">
           <thead>
             <tr>
-              <th>EMAIL</th><th>STATUS</th><th>CREATED</th><th>EXPIRES</th><th>USED BY</th><th></th>
+              <th>EMAIL</th><th>STATUS</th><th>CREATED</th><th>EXPIRES</th><th>USED BY</th><th>LINK</th><th></th>
             </tr>
           </thead>
           <tbody id="invites-body">
-            <tr><td colspan="6" class="empty">Loading…</td></tr>
+            <tr><td colspan="7" class="empty">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -274,8 +343,17 @@ html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:va
     <div style="font-size:10px;color:var(--muted);">User: <span id="reset-username" style="color:var(--text);"></span></div>
     <div class="form-field">
       <div class="form-label">NEW PASSWORD (min 10 chars)</div>
-      <input class="form-input" id="reset-password" type="password" placeholder="••••••••••"
-        onkeydown="if(event.key==='Enter')confirmResetPassword()">
+      <div style="position:relative;">
+        <input class="form-input" id="reset-password" type="password" placeholder="••••••••••"
+          onkeydown="if(event.key==='Enter')confirmResetPassword()"
+          oninput="updatePwStrength('reset-password','reset-pw-strength')"
+          style="padding-right:60px;">
+        <button onclick="togglePwVis('reset-password',this)"
+          style="position:absolute;right:8px;top:50%;transform:translateY(-50%);
+            background:none;border:none;color:var(--muted);font-family:var(--font);
+            font-size:8px;cursor:pointer;letter-spacing:1px;padding:2px 4px;">SHOW</button>
+      </div>
+      <div class="pw-strength" id="reset-pw-strength"></div>
     </div>
     <div class="form-field">
       <div class="form-label">CONFIRM PASSWORD</div>
@@ -290,8 +368,365 @@ html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:va
   </div>
 </div>
 
+<!-- View invite link modal -->
+<div class="modal-overlay" id="link-modal">
+  <div class="modal link-modal">
+    <h3>INVITE LINK</h3>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">For: <span id="link-email" style="color:var(--text);"></span></div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:8px;">Expires: <span id="link-expires" style="color:var(--text);"></span></div>
+    <div class="form-label" style="margin-bottom:6px;">INVITE URL</div>
+    <div class="link-box" id="link-url-display"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="invite-copy" id="link-copy-btn"
+        onclick="copyInviteUrl('link-url-display','link-copy-btn')">⎘ COPY URL</button>
+    </div>
+    <div class="modal-btns" style="margin-top:8px;">
+      <button class="btn" onclick="document.getElementById('link-modal').classList.remove('visible')">CLOSE</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
 <script>
+'use strict';
+
+const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:3001' : location.origin;
+
+axios.defaults.withCredentials = true;
+
+// ── Auth guard + role check ───────────────────────────────────
+let _me = null;
+async function init() {
+  try {
+    const r = await axios.get(API + '/api/auth/me');
+    _me = r.data;
+    if (_me.role !== 'admin') {
+      document.body.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+        height:100vh;font-family:monospace;color:#f87171;font-size:14px;letter-spacing:2px;">
+        ACCESS DENIED — ADMIN ONLY</div>`;
+      return;
+    }
+    document.getElementById('sys-username').textContent = _me.username;
+    loadUsers();
+    loadInvites();
+  } catch {
+    location.href = 'login.html';
+  }
+}
+
+async function doLogout() {
+  try { await axios.post(API + '/api/auth/logout'); } catch {}
+  location.href = 'login.html';
+}
+
+// ── Password visibility toggle ───────────────────────────────
+function togglePwVis(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const isText = inp.type === 'text';
+  inp.type = isText ? 'password' : 'text';
+  btn.textContent = isText ? 'SHOW' : 'HIDE';
+}
+
+// ── Password strength indicator ───────────────────────────────
+function updatePwStrength(inputId, statusId) {
+  const val = document.getElementById(inputId).value;
+  const el  = document.getElementById(statusId);
+  if (!val) { el.textContent = ''; return; }
+  const score = [val.length >= 10, val.length >= 14, /[A-Z]/.test(val),
+    /[0-9]/.test(val), /[^a-zA-Z0-9]/.test(val)].filter(Boolean).length;
+  if (score <= 2) { el.className = 'pw-strength pw-strength--weak'; el.textContent = '▮▯▯ WEAK'; }
+  else if (score <= 3) { el.className = 'pw-strength pw-strength--ok'; el.textContent = '▮▮▯ FAIR'; }
+  else { el.className = 'pw-strength pw-strength--good'; el.textContent = '▮▮▮ STRONG'; }
+}
+
+// ── Copy helper — works from any text element ─────────────────
+async function copyInviteUrl(sourceId, btnId) {
+  const text = document.getElementById(sourceId).textContent.trim();
+  const btn  = document.getElementById(btnId);
+  const orig = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // HTTP fallback
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  btn.textContent = '✓ COPIED!';
+  setTimeout(() => btn.textContent = orig, 2000);
+}
+
+// ── Invite creation ───────────────────────────────────────────
+async function createInvite() {
+  const email   = document.getElementById('invite-email').value.trim();
+  const expires = parseInt(document.getElementById('invite-expires').value);
+  const btn     = document.getElementById('invite-btn');
+  const status  = document.getElementById('invite-status');
+  const result  = document.getElementById('invite-result');
+
+  if (!email) { showStatus(status, 'err', 'Email address required.'); return; }
+
+  btn.disabled = true; btn.textContent = '⟳ GENERATING…';
+  hideStatus(status); result.style.display = 'none';
+
+  try {
+    const r = await axios.post(API + '/api/admin/invite', { email, expires_days: expires });
+    const url = r.data.invite_url;
+
+    document.getElementById('invite-url-text').textContent      = url;
+    document.getElementById('invite-expires-label').textContent = fmtDate(r.data.expires_at);
+    document.getElementById('invite-email-label').textContent   = r.data.email;
+    result.style.display = '';
+    document.getElementById('invite-email').value = '';
+    showStatus(status, 'ok', '✓ Invite created — copy the link below and send it to the user.');
+    loadInvites();
+  } catch (err) {
+    showStatus(status, 'err', err.response?.data?.error || 'Failed to create invite.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'GENERATE LINK →';
+  }
+}
+
+// ── Direct user creation ──────────────────────────────────────
+async function createUserDirect() {
+  const username = document.getElementById('dc-username').value.trim();
+  const email    = document.getElementById('dc-email').value.trim();
+  const password = document.getElementById('dc-password').value;
+  const role     = document.getElementById('dc-role').value;
+  const btn      = document.getElementById('dc-btn');
+  const status   = document.getElementById('dc-status');
+
+  hideStatus(status);
+
+  if (!username) { showStatus(status, 'err', 'Username required.'); return; }
+  if (!/^[a-zA-Z0-9_-]{3,30}$/.test(username)) {
+    showStatus(status, 'err', 'Username: 3-30 chars, letters/numbers/_ or - only.'); return;
+  }
+  if (!email)    { showStatus(status, 'err', 'Email required.'); return; }
+  if (password.length < 10) { showStatus(status, 'err', 'Password must be at least 10 characters.'); return; }
+
+  btn.disabled = true; btn.textContent = '⟳ CREATING…';
+
+  try {
+    await axios.post(API + '/api/admin/create-user', { username, email, password, role });
+    showStatus(status, 'ok', `✓ User "${username}" created successfully.`);
+    // Clear form
+    document.getElementById('dc-username').value = '';
+    document.getElementById('dc-email').value    = '';
+    document.getElementById('dc-password').value = '';
+    document.getElementById('dc-role').value     = 'user';
+    loadUsers();
+  } catch (err) {
+    showStatus(status, 'err', err.response?.data?.error || 'Failed to create user.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'CREATE USER →';
+    btn.onmouseover = () => { btn.style.background='var(--green)'; btn.style.color='#000'; };
+    btn.onmouseout  = () => { btn.style.background='transparent'; btn.style.color='var(--green)'; };
+  }
+}
+
+// ── Invite list ───────────────────────────────────────────────
+let _pendingInvites = []; // stash so we can rebuild links
+
+async function loadInvites() {
+  const tbody = document.getElementById('invites-body');
+  try {
+    const r = await axios.get(API + '/api/admin/invites');
+    _pendingInvites = r.data;
+    if (!r.data.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">No invites yet.</td></tr>`;
+      return;
+    }
+    const host = location.origin;
+    tbody.innerHTML = r.data.map((inv, i) => {
+      const now     = new Date();
+      const expired = !inv.used && new Date(inv.expires_at) < now;
+      const badge   = inv.used    ? `<span class="badge badge--used">USED</span>`
+                    : expired     ? `<span class="badge badge--exp">EXPIRED</span>`
+                    : `<span class="badge badge--pend">PENDING</span>`;
+
+      const linkBtn = (!inv.used && !expired)
+        ? `<button class="btn btn--xs btn--amber" onclick="viewInviteLink(${i})">VIEW LINK</button>`
+        : `<span style="font-size:8px;color:var(--dim);">—</span>`;
+      const revokeBtn = (!inv.used && !expired)
+        ? `<button class="btn btn--xs btn--red" onclick="revokeInvite('${inv.token}')">REVOKE</button>`
+        : `<span style="font-size:8px;color:var(--dim);">—</span>`;
+
+      return `<tr>
+        <td>${h(inv.email)}</td>
+        <td>${badge}</td>
+        <td style="font-size:9px;color:var(--muted);">${fmtDate(inv.created_at)}</td>
+        <td style="font-size:9px;color:${expired?'#f87171':'var(--muted)'};">${fmtDate(inv.expires_at)}</td>
+        <td style="font-size:9px;color:var(--muted);">${h(inv.used_by || '—')}</td>
+        <td>${linkBtn}</td>
+        <td>${revokeBtn}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">Failed to load invites.</td></tr>`;
+  }
+}
+
+function viewInviteLink(idx) {
+  const inv = _pendingInvites[idx];
+  if (!inv) return;
+  const url = `${location.origin}/login.html?invite=${inv.token}`;
+  document.getElementById('link-url-display').textContent = url;
+  document.getElementById('link-email').textContent       = inv.email;
+  document.getElementById('link-expires').textContent     = fmtDate(inv.expires_at);
+  document.getElementById('link-modal').classList.add('visible');
+}
+
+async function revokeInvite(token) {
+  if (!confirm('Revoke this invite? The link will stop working immediately.')) return;
+  try {
+    await axios.delete(API + '/api/admin/invite/' + token);
+    loadInvites();
+  } catch (err) {
+    alert(err.response?.data?.error || 'Failed to revoke invite.');
+  }
+}
+
+// ── User list ─────────────────────────────────────────────────
+let _users = [];
+
+async function loadUsers() {
+  const tbody = document.getElementById('users-body');
+  try {
+    const r = await axios.get(API + '/api/admin/users');
+    _users = r.data;
+    renderUsers(_users);
+  } catch {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">Failed to load users.</td></tr>`;
+  }
+}
+
+function renderUsers(users) {
+  const tbody = document.getElementById('users-body');
+  if (!users.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">No users yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = users.map(u => {
+    const isSelf = u.id === _me?.id;
+    const activeBadge = u.is_active
+      ? `<span class="badge badge--ok">ACTIVE</span>`
+      : `<span class="badge badge--off">DISABLED</span>`;
+    const roleBadge = u.role === 'admin'
+      ? `<span class="badge badge--admin">ADMIN</span>`
+      : `<span class="badge" style="color:var(--muted);border-color:var(--muted);">USER</span>`;
+
+    const toggleLbl = u.is_active ? 'DISABLE' : 'ENABLE';
+    const toggleCls = u.is_active ? 'btn--red' : 'btn--amber';
+    const selfGuard = isSelf ? 'disabled title="Cannot disable your own account"' : '';
+
+    const promoteBtn = u.role === 'admin'
+      ? `<button class="btn btn--xs" onclick="changeRole('${u.id}','user')" ${isSelf?'disabled':''}>DEMOTE</button>`
+      : `<button class="btn btn--xs btn--amber" onclick="changeRole('${u.id}','admin')">PROMOTE</button>`;
+
+    return `<tr>
+      <td style="font-weight:700;">${h(u.username)}${isSelf?` <span style="font-size:7px;color:var(--amber);">(you)</span>`:''}  </td>
+      <td style="font-size:9px;color:var(--muted);">${h(u.email)}</td>
+      <td>${roleBadge}</td>
+      <td>${activeBadge}</td>
+      <td style="font-size:9px;color:var(--muted);">${fmtDate(u.created_at)}</td>
+      <td style="font-size:9px;color:var(--muted);">${u.last_login ? fmtDate(u.last_login) : '—'}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="btn btn--xs ${toggleCls}" onclick="toggleUser('${u.id}',${!u.is_active})" ${selfGuard}>${toggleLbl}</button>
+          ${promoteBtn}
+          <button class="btn btn--xs" onclick="openResetModal('${u.id}','${h(u.username)}')">RESET PW</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleUser(id, enable) {
+  if (!confirm(`${enable ? 'Enable' : 'Disable'} this user?`)) return;
+  try {
+    await axios.patch(API + '/api/admin/users/' + id, { is_active: enable });
+    loadUsers();
+  } catch (err) { alert(err.response?.data?.error || 'Failed.'); }
+}
+
+async function changeRole(id, role) {
+  const verb = role === 'admin' ? 'promote to admin' : 'demote to regular user';
+  if (!confirm(`Are you sure you want to ${verb}?`)) return;
+  try {
+    await axios.patch(API + '/api/admin/users/' + id, { role });
+    loadUsers();
+  } catch (err) { alert(err.response?.data?.error || 'Failed.'); }
+}
+
+// ── Reset password modal ──────────────────────────────────────
+let _resetUserId = null;
+
+function openResetModal(id, username) {
+  _resetUserId = id;
+  document.getElementById('reset-username').textContent = username;
+  document.getElementById('reset-password').value  = '';
+  document.getElementById('reset-password2').value = '';
+  document.getElementById('reset-pw-strength').textContent = '';
+  hideStatus(document.getElementById('reset-status'));
+  document.getElementById('reset-modal').classList.add('visible');
+  setTimeout(() => document.getElementById('reset-password').focus(), 80);
+}
+
+function closeResetModal() {
+  document.getElementById('reset-modal').classList.remove('visible');
+  _resetUserId = null;
+}
+
+async function confirmResetPassword() {
+  const pw   = document.getElementById('reset-password').value;
+  const pw2  = document.getElementById('reset-password2').value;
+  const stat = document.getElementById('reset-status');
+  if (pw.length < 10) { showStatus(stat,'err','Password must be at least 10 characters.'); return; }
+  if (pw !== pw2)      { showStatus(stat,'err','Passwords do not match.'); return; }
+
+  const btn = document.getElementById('reset-confirm-btn');
+  btn.disabled = true; btn.textContent = '⟳ SAVING…';
+  try {
+    await axios.post(API + '/api/admin/users/' + _resetUserId + '/reset-password', { password: pw });
+    showStatus(stat, 'ok', '✓ Password updated.');
+    setTimeout(closeResetModal, 1500);
+  } catch (err) {
+    showStatus(stat, 'err', err.response?.data?.error || 'Failed.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'SET PASSWORD →';
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function showStatus(el, type, msg) {
+  el.className = `status-msg status-msg--${type}`;
+  el.textContent = msg; el.style.display = '';
+}
+function hideStatus(el) { if (el) el.style.display = 'none'; }
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
+       + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+
+function h(s) { const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+
+// ── Close modals on backdrop click ────────────────────────────
+['reset-modal','link-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.remove('visible');
+  });
+});
+
+init();
+</script>
+</body>
+</html>
 'use strict';
 
 const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
