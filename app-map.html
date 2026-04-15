@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>AEGIS V3 — Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<link rel="stylesheet" href="style-app.css"/>
+<style>
+/* ── CRITICAL: all layout inline so map renders even if external CSS is slow ── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100vh;overflow:hidden;background:#050810;
+  font-family:'Roboto Mono',monospace;color:#c8d0e0;}
+
+/* nav injected at top: ctx-bar(32) + main-nav(40) = 72px */
+#map{position:fixed;top:72px;left:0;right:0;bottom:0;z-index:1;background:var(--c-bg,#0a1628);}
+
+/* Left panel — floating overlay */
+#left-panel{
+  position:fixed;top:82px;left:10px;bottom:50px;
+  width:250px;z-index:500;
+  background:var(--c-panel,rgba(11,15,28,.94));
+  border:1px solid var(--c-border,rgba(255,255,255,0.10));
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  pointer-events:auto;
+}
+#left-panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 12px;border-bottom:1px solid var(--c-border,rgba(255,255,255,0.08));
+  font-size:9px;letter-spacing:2px;color:var(--c-muted,#5a6378);
+}
+#left-panel-body{flex:1;overflow-y:auto;overflow-x:hidden;}
+#left-panel-body::-webkit-scrollbar{width:3px;}
+#left-panel-body::-webkit-scrollbar-thumb{background:var(--c-border,#1e2a3a);}
+
+/* Panel sections */
+.p-section{border-bottom:1px solid rgba(255,255,255,0.06);padding:10px 12px;}
+.p-section-title{font-size:8px;letter-spacing:3px;color:#5a6378;margin-bottom:8px;font-weight:700;}
+
+/* Layer buttons */
+.layer-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.layer-btn{
+  background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+  color:#5a6378;font-family:'Roboto Mono',monospace;font-size:9px;
+  letter-spacing:1px;padding:6px 4px;cursor:pointer;transition:all .15s;
+  text-align:center;
+}
+.layer-btn:hover{color:#c8d0e0;border-color:rgba(255,255,255,0.18);}
+.layer-btn.active{color:#f59e0b;border-color:#f59e0b;background:rgba(245,158,11,0.08);}
+
+/* Tool buttons */
+.tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.tool-btn{
+  background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+  color:#5a6378;font-family:'Roboto Mono',monospace;font-size:9px;
+  letter-spacing:1px;padding:7px 4px;cursor:pointer;transition:all .15s;
+  text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.tool-btn:hover{color:#c8d0e0;border-color:rgba(255,255,255,0.18);}
+.tool-btn.active{color:#f59e0b;border-color:#f59e0b;background:rgba(245,158,11,0.08);}
+.tool-btn .t-icon{font-size:14px;}
+.tool-btn .t-label{font-size:7px;letter-spacing:1px;}
+
+/* Marker list */
+.marker-item{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);
+  cursor:pointer;font-size:10px;color:#c8d0e0;
+}
+.marker-item:hover{color:#fff;}
+.marker-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.marker-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.marker-del{color:#3a4155;font-size:10px;padding:2px 4px;cursor:pointer;
+  background:none;border:none;font-family:inherit;}
+.marker-del:hover{color:#ef4444;}
+
+/* Facility filter */
+.risk-filter-row{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;}
+.rf-btn{
+  font-size:8px;letter-spacing:1px;padding:3px 7px;
+  border:1px solid;cursor:pointer;background:transparent;
+  font-family:'Roboto Mono',monospace;transition:all .15s;
+}
+.rf-btn.active{opacity:1;}
+.rf-btn:not(.active){opacity:0.3;}
+.rf-btn.critical {color:#f87171;border-color:#d32f2f;}
+.rf-btn.hazardous{color:#fb923c;border-color:#f57c00;}
+.rf-btn.high     {color:#fbbf24;border-color:#fbc02d;}
+.rf-btn.medium   {color:#60a5fa;border-color:#1976d2;}
+.rf-btn.low      {color:#4ade80;border-color:#388e3c;}
+
+/* Bottom status bar */
+#bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;height:40px;z-index:500;
+  background:var(--c-bg,rgba(5,8,16,.95));border-top:1px solid var(--c-border,rgba(255,255,255,0.08));
+  display:flex;align-items:center;padding:0 16px;gap:24px;
+  font-size:10px;letter-spacing:1px;
+  pointer-events:auto;
+}
+.bb-item{display:flex;align-items:center;gap:6px;}
+.bb-label{color:var(--c-dim,#3a4155);font-size:8px;letter-spacing:2px;}
+.bb-val{color:var(--c-text,#c8d0e0);}
+#bb-measure{color:#f59e0b;font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── Marker form popup ── */
+#marker-form{
+  position:fixed;z-index:2000;
+  background:var(--c-panel,rgba(11,15,28,.97));border:1px solid var(--c-border,rgba(255,255,255,0.18));
+  padding:16px;width:240px;display:none;
+  font-family:'Roboto Mono',monospace;
+}
+#marker-form h4{font-size:9px;letter-spacing:3px;color:var(--c-muted,#5a6378);margin-bottom:12px;}
+.mf-input{
+  width:100%;background:var(--c-bg,rgba(5,8,16,.8));border:1px solid var(--c-border,rgba(255,255,255,0.10));
+  color:var(--c-text,#c8d0e0);font-family:'Roboto Mono',monospace;font-size:11px;
+  padding:7px 10px;margin-bottom:8px;outline:none;
+}
+.mf-input:focus{border-color:rgba(255,255,255,0.25);}
+.mf-row{display:flex;gap:6px;align-items:center;margin-bottom:10px;}
+.mf-label{font-size:8px;letter-spacing:1px;color:var(--c-muted,#5a6378);white-space:nowrap;}
+.mf-btns{display:flex;gap:6px;}
+.mf-btn{
+  flex:1;font-family:'Roboto Mono',monospace;font-size:9px;letter-spacing:1px;
+  padding:7px;border:1px solid var(--c-border,rgba(255,255,255,0.12));
+  background:transparent;color:var(--c-text,#c8d0e0);cursor:pointer;transition:all .15s;
+}
+.mf-btn:hover{background:rgba(255,255,255,0.06);}
+.mf-btn.primary{border-color:#f59e0b;color:#f59e0b;}
+.mf-btn.primary:hover{background:rgba(245,158,11,0.12);}
+
+/* ── Context menu ── */
+#ctx-menu{
+  position:fixed;z-index:3000;
+  background:var(--c-panel,rgba(11,15,28,.97));border:1px solid var(--c-border,rgba(255,255,255,0.18));
+  min-width:150px;display:none;
+  font-family:'Roboto Mono',monospace;
+}
+.ctx-item{
+  padding:8px 14px;font-size:10px;letter-spacing:1px;color:var(--c-text,#c8d0e0);
+  cursor:pointer;border-bottom:1px solid var(--c-border,rgba(255,255,255,0.06));
+  display:flex;align-items:center;gap:8px;
+}
+.ctx-item:last-child{border-bottom:none;}
+.ctx-item:hover{background:rgba(255,255,255,0.06);}
+.ctx-item.danger{color:#f87171;}
+.ctx-sep{height:1px;background:var(--c-border,rgba(255,255,255,0.08));margin:2px 0;}
+.ctx-item-icon{font-size:11px;width:14px;text-align:center;}
+
+/* ── Shape color/opacity panel ── */
+#shape-style-panel{
+  position:fixed;z-index:3000;
+  background:var(--c-panel,rgba(11,15,28,.97));border:1px solid var(--c-border,rgba(255,255,255,0.18));
+  padding:14px;width:200px;display:none;
+  font-family:'Roboto Mono',monospace;
+}
+#shape-style-panel h5{font-size:8px;letter-spacing:3px;color:#5a6378;margin-bottom:10px;}
+.ssp-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.ssp-label{font-size:8px;letter-spacing:1px;color:#5a6378;width:60px;}
+.ssp-colors{display:flex;gap:4px;flex-wrap:wrap;}
+.ssp-color{width:20px;height:20px;border-radius:2px;cursor:pointer;border:2px solid transparent;transition:border-color .1s;}
+.ssp-color.selected{border-color:#fff;}
+.ssp-slider{flex:1;accent-color:#f59e0b;}
+.ssp-btns{display:flex;gap:6px;margin-top:8px;}
+
+/* Cursor styles */
+body.tool-marker{cursor:crosshair!important;}
+body.tool-draw{cursor:crosshair!important;}
+body.tool-measure{cursor:crosshair!important;}
+
+/* ── Search bar ── */
+.map-search-input {
+  width:100%;background:var(--c-bg,#050810);
+  border:1px solid var(--c-border,rgba(255,255,255,0.08));
+  color:var(--c-text,#c8d0e0);font-family:'Roboto Mono',monospace;
+  font-size:10px;padding:7px 28px 7px 10px;outline:none;
+  transition:border-color .15s;
+}
+.map-search-input:focus{border-color:rgba(255,255,255,0.22);}
+.map-search-input::placeholder{color:var(--c-dim,#3a4155);}
+.search-results{
+  position:absolute;top:100%;left:0;right:0;z-index:2000;
+  background:var(--c-panel,rgba(11,15,28,.97));
+  border:1px solid rgba(255,255,255,0.16);
+  border-top:none;max-height:260px;overflow-y:auto;
+}
+.search-results::-webkit-scrollbar{width:3px;}
+.search-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);}
+.search-result-item{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.05);
+  transition:background .1s;
+}
+.search-result-item:hover{background:rgba(255,255,255,0.05);}
+.search-result-item:last-child{border-bottom:none;}
+.search-result-type{
+  font-size:7px;letter-spacing:1.5px;padding:2px 5px;
+  border:1px solid;flex-shrink:0;
+}
+.search-result-type--facility{color:#f59e0b;border-color:#f59e0b;}
+.search-result-type--marker {color:#22c55e;border-color:#22c55e;}
+.search-result-type--place  {color:#38bdf8;border-color:#38bdf8;}
+.search-result-name{font-size:10px;color:var(--c-text,#c8d0e0);flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.search-result-sub{font-size:8px;color:var(--c-muted,#5a6378);flex-shrink:0;}
+.infra-row {
+  display:flex;align-items:center;gap:4px;
+}
+.infra-btn {
+  flex:1;display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.07);
+  color:var(--c-muted,#5a6378);font-family:'Roboto Mono',monospace;
+  font-size:9px;letter-spacing:1px;padding:6px 8px;
+  cursor:pointer;transition:all .15s;text-align:left;
+}
+.infra-btn:hover { border-color:rgba(255,255,255,0.15);color:var(--c-text,#c8d0e0); }
+.infra-btn--active {
+  border-color:rgba(255,255,255,0.25);
+  background:rgba(255,255,255,0.06);
+  color:var(--c-text,#c8d0e0);
+}
+.infra-btn:disabled { opacity:.5;cursor:wait; }
+.infra-line {
+  display:inline-block;width:22px;flex-shrink:0;
+  height:1.5px;background:#888;border-radius:1px;
+}
+.infra-line--dashed {
+  background:none;height:0;
+  border-top-width:2px;border-top-style:dashed;
+}
+.infra-lbl { flex:1;font-size:8px;letter-spacing:1.5px; }
+.infra-reload {
+  background:none;border:none;color:var(--c-dim,#3a4155);
+  font-size:10px;cursor:pointer;padding:3px 4px;
+  transition:color .15s;font-family:inherit;flex-shrink:0;
+}
+.infra-reload:hover { color:var(--c-muted,#5a6378); }
+
+/* Leaflet overrides */
+.leaflet-container{background:#0a1628;}
+.leaflet-control-zoom{margin-bottom:50px!important;margin-right:12px!important;}
+
+/* Scan grid cells are drawn as Leaflet layers — no extra CSS needed */
+
+/* Mini measure tooltip */
+.measure-tooltip{
+  background:rgba(11,15,28,.95)!important;border:1px solid rgba(245,158,11,0.4)!important;
+  color:#f59e0b!important;font-family:'Roboto Mono',monospace!important;
+  font-size:10px!important;border-radius:0!important;padding:4px 8px!important;
+  white-space:nowrap!important;
+}
+</style>
+</head>
+<body>
+<!-- ctx-bar + main-nav injected by app-nav.js -->
+<div id="map"></div>
+
+<!-- Left control panel -->
+<div id="left-panel">
+  <div id="left-panel-header">
+    <span>AEGIS MAP WORKSPACE</span>
+    <span id="lp-project-id" style="color:#3a4155;">---</span>
+  </div>
+  <div id="left-panel-body">
+
+    <!-- Search -->
+    <div class="p-section" style="position:relative;">
+      <div class="p-section-title">SEARCH</div>
+      <div style="position:relative;">
+        <input type="text" id="map-search" class="map-search-input"
+          placeholder="Facilities, markers, places…"
+          oninput="debounceSearch(this.value)"
+          onkeydown="searchKeydown(event)"
+          autocomplete="off">
+        <button id="map-search-clear"
+          style="position:absolute;right:6px;top:50%;transform:translateY(-50%);
+            background:none;border:none;color:#3a4155;cursor:pointer;font-size:11px;display:none;"
+          onclick="clearSearch()">✕</button>
+      </div>
+      <div id="search-results" class="search-results" style="display:none;"></div>
+    </div>
+
+    <!-- Layer selector -->
+    <div class="p-section">
+      <div class="p-section-title">BASE LAYER</div>
+      <div class="layer-grid">
+        <button class="layer-btn active" data-layer="osm-default" onclick="setLayer('osm-default',this)">OSM Default</button>
+        <button class="layer-btn"        data-layer="osm-dark"    onclick="setLayer('osm-dark',this)">OSM Dark</button>
+        <button class="layer-btn"        data-layer="osm-light"   onclick="setLayer('osm-light',this)">OSM Light</button>
+        <button class="layer-btn"        data-layer="satellite"   onclick="setLayer('satellite',this)">Satellite</button>
+        <button class="layer-btn"        data-layer="terrain"     onclick="setLayer('terrain',this)">Terrain</button>
+      </div>
+    </div>
+
+    <!-- Tools -->
+    <div class="p-section">
+      <div class="p-section-title">TOOLS</div>
+      <div class="tool-grid">
+        <button class="tool-btn active" id="tool-pan"           onclick="setTool('pan',this)"><span class="t-icon">✥</span><span class="t-label">PAN</span></button>
+        <button class="tool-btn"        id="tool-marker"        onclick="setTool('marker',this)"><span class="t-icon">◎</span><span class="t-label">MARKER</span></button>
+        <button class="tool-btn"        id="tool-rectangle"     onclick="setTool('rectangle',this)"><span class="t-icon">▭</span><span class="t-label">RECT</span></button>
+        <button class="tool-btn"        id="tool-circle"        onclick="setTool('circle',this)"><span class="t-icon">◯</span><span class="t-label">CIRCLE</span></button>
+        <button class="tool-btn"        id="tool-polygon"       onclick="setTool('polygon',this)"><span class="t-icon">⬡</span><span class="t-label">POLYGON</span></button>
+        <button class="tool-btn"        id="tool-measure-dist"  onclick="setTool('measure-dist',this)"><span class="t-icon">⟷</span><span class="t-label">DIST</span></button>
+        <button class="tool-btn"        id="tool-measure-area"  onclick="setTool('measure-area',this)"><span class="t-icon">⬜</span><span class="t-label">AREA</span></button>
+        <button class="tool-btn"        id="tool-facilities"    onclick="setTool('facilities',this)"><span class="t-icon">⬡</span><span class="t-label">LAYERS</span></button>
+      </div>
+      <!-- Active draw color -->
+      <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+        <span style="font-size:7px;letter-spacing:2px;color:#3a4155;">COLOR</span>
+        <div id="active-color-dot" style="width:10px;height:10px;border-radius:50%;background:#f59e0b;border:1.5px solid rgba(255,255,255,0.4);flex-shrink:0;"></div>
+        <div style="display:flex;gap:3px;">
+          <div class="draw-color-swatch selected" style="width:14px;height:14px;border-radius:2px;background:#f59e0b;cursor:pointer;border:1.5px solid rgba(255,255,255,0.5);" data-color="#f59e0b" onclick="setDrawColor('#f59e0b')"></div>
+          <div class="draw-color-swatch" style="width:14px;height:14px;border-radius:2px;background:#ef4444;cursor:pointer;border:1.5px solid transparent;" data-color="#ef4444" onclick="setDrawColor('#ef4444')"></div>
+          <div class="draw-color-swatch" style="width:14px;height:14px;border-radius:2px;background:#22c55e;cursor:pointer;border:1.5px solid transparent;" data-color="#22c55e" onclick="setDrawColor('#22c55e')"></div>
+          <div class="draw-color-swatch" style="width:14px;height:14px;border-radius:2px;background:#3b82f6;cursor:pointer;border:1.5px solid transparent;" data-color="#3b82f6" onclick="setDrawColor('#3b82f6')"></div>
+          <div class="draw-color-swatch" style="width:14px;height:14px;border-radius:2px;background:#a855f7;cursor:pointer;border:1.5px solid transparent;" data-color="#a855f7" onclick="setDrawColor('#a855f7')"></div>
+          <div class="draw-color-swatch" style="width:14px;height:14px;border-radius:2px;background:#c8d0e0;cursor:pointer;border:1.5px solid transparent;" data-color="#c8d0e0" onclick="setDrawColor('#c8d0e0')"></div>
+        </div>
+      </div>
+      <div style="margin-top:6px;font-size:8px;color:#3a4155;letter-spacing:1px;" id="tool-hint">Click and drag to pan. Scroll to zoom.</div>
+    </div>
+
+    <!-- Markers list -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;justify-content:space-between;">
+        <span>MARKERS</span>
+        <button style="background:none;border:none;color:#3a4155;font-size:9px;cursor:pointer;font-family:inherit;"
+          onclick="clearAllMarkers()">CLEAR ALL</button>
+      </div>
+      <div id="marker-list"></div>
+    </div>
+
+    <!-- Shapes list -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;justify-content:space-between;">
+        <span>SHAPES</span>
+        <button style="background:none;border:none;color:#3a4155;font-size:9px;cursor:pointer;font-family:inherit;"
+          onclick="clearAllShapes()">CLEAR ALL</button>
+      </div>
+      <div id="shape-list"></div>
+    </div>
+
+    <!-- Facilities overlay -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;justify-content:space-between;">
+        <span>FACILITIES</span>
+        <button style="background:none;border:none;color:#5a6378;font-size:8px;cursor:pointer;font-family:inherit;"
+          onclick="reloadFacilities()">⟳ RELOAD</button>
+      </div>
+      <div class="risk-filter-row">
+        <button class="rf-btn critical active"  onclick="toggleRisk('critical',this)">CRIT</button>
+        <button class="rf-btn hazardous active" onclick="toggleRisk('hazardous',this)">HAZ</button>
+        <button class="rf-btn high active"      onclick="toggleRisk('high',this)">HIGH</button>
+        <button class="rf-btn medium active"    onclick="toggleRisk('medium',this)">MED</button>
+        <button class="rf-btn low active"       onclick="toggleRisk('low',this)">LOW</button>
+      </div>
+      <div id="fac-count" style="font-size:9px;color:#3a4155;margin-top:6px;letter-spacing:1px;">— facilities loaded</div>
+    </div>
+
+    <!-- Infrastructure layers -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>INFRASTRUCTURE</span>
+        <span style="font-size:7px;color:#3a4155;letter-spacing:1px;">CACHED</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:4px;">
+
+        <!-- Roads -->
+        <div class="infra-row">
+          <button class="infra-btn" id="infra-btn-roads"
+            onclick="toggleInfraLayer('roads', this)">
+            <span class="infra-line" style="background:#8899aa;height:1.5px;"></span>
+            <span class="infra-lbl">ROADS</span>
+          </button>
+          <button class="infra-reload" title="Force reload" onclick="reloadInfraLayer('roads', document.getElementById('infra-btn-roads'))">⟳</button>
+        </div>
+
+        <!-- Highways -->
+        <div class="infra-row">
+          <button class="infra-btn" id="infra-btn-highways"
+            onclick="toggleInfraLayer('highways', this)">
+            <span class="infra-line" style="background:#e2c97e;height:3.5px;"></span>
+            <span class="infra-lbl">HIGHWAYS</span>
+          </button>
+          <button class="infra-reload" title="Force reload" onclick="reloadInfraLayer('highways', document.getElementById('infra-btn-highways'))">⟳</button>
+        </div>
+
+        <!-- Railways -->
+        <div class="infra-row">
+          <button class="infra-btn" id="infra-btn-railways"
+            onclick="toggleInfraLayer('railways', this)">
+            <span class="infra-line infra-line--dashed" style="border-top:2px solid #b07fff;"></span>
+            <span class="infra-lbl">RAILWAYS</span>
+          </button>
+          <button class="infra-reload" title="Force reload" onclick="reloadInfraLayer('railways', document.getElementById('infra-btn-railways'))">⟳</button>
+        </div>
+
+        <!-- Power grid -->
+        <div class="infra-row">
+          <button class="infra-btn" id="infra-btn-power"
+            onclick="toggleInfraLayer('power', this)">
+            <span class="infra-line infra-line--dashed" style="border-top:2px dashed #f59e0b;"></span>
+            <span class="infra-lbl">POWER GRID</span>
+          </button>
+          <button class="infra-reload" title="Force reload" onclick="reloadInfraLayer('power', document.getElementById('infra-btn-power'))">⟳</button>
+        </div>
+
+        <!-- Telecom -->
+        <div class="infra-row">
+          <button class="infra-btn" id="infra-btn-telecom"
+            onclick="toggleInfraLayer('telecom', this)">
+            <span class="infra-line infra-line--dashed" style="border-top:2px dashed #38bdf8;"></span>
+            <span class="infra-lbl">TELECOM</span>
+          </button>
+          <button class="infra-reload" title="Force reload" onclick="reloadInfraLayer('telecom', document.getElementById('infra-btn-telecom'))">⟳</button>
+        </div>
+
+      </div>
+
+      <div style="font-size:7px;color:#3a4155;margin-top:8px;letter-spacing:1px;line-height:1.5;">
+        First load fetches from OSM and caches.<br>
+        Power/Telecom fall back to facility graph if no OSM data.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Bottom status bar -->
+<div id="bottom-bar">
+  <div class="bb-item"><span class="bb-label">CURSOR</span><span class="bb-val" id="bb-coords">—</span></div>
+  <div class="bb-item"><span class="bb-label">ZOOM</span><span class="bb-val" id="bb-zoom">2</span></div>
+  <div class="bb-item"><span class="bb-label">TOOL</span><span class="bb-val" id="bb-tool">PAN</span></div>
+  <div class="bb-item" style="flex:1;"><span id="bb-measure"></span></div>
+  <div class="bb-item"><span class="bb-label">PROJECT</span><span class="bb-val" id="bb-project">---</span></div>
+</div>
+
+<!-- Marker form -->
+<div id="marker-form">
+  <h4>NEW MARKER</h4>
+  <input class="mf-input" id="mf-name" placeholder="Marker name" maxlength="60">
+  <textarea class="mf-input" id="mf-desc" placeholder="Description (optional)" rows="2" style="resize:none;"></textarea>
+  <div class="mf-row">
+    <span class="mf-label">COLOR</span>
+    <div id="mf-colors" style="display:flex;gap:4px;">
+      <div class="ssp-color selected" style="background:#f59e0b;" data-color="#f59e0b" onclick="selectMarkerColor(this)"></div>
+      <div class="ssp-color" style="background:#ef4444;" data-color="#ef4444" onclick="selectMarkerColor(this)"></div>
+      <div class="ssp-color" style="background:#22c55e;" data-color="#22c55e" onclick="selectMarkerColor(this)"></div>
+      <div class="ssp-color" style="background:#3b82f6;" data-color="#3b82f6" onclick="selectMarkerColor(this)"></div>
+      <div class="ssp-color" style="background:#a855f7;" data-color="#a855f7" onclick="selectMarkerColor(this)"></div>
+      <div class="ssp-color" style="background:#c8d0e0;" data-color="#c8d0e0" onclick="selectMarkerColor(this)"></div>
+    </div>
+  </div>
+  <div class="mf-btns">
+    <button class="mf-btn" onclick="cancelMarker()">CANCEL</button>
+    <button class="mf-btn primary" onclick="confirmMarker()">PLACE →</button>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div id="ctx-menu">
+  <div class="ctx-item" onclick="ctxRename()"><span class="ctx-item-icon">✎</span>Rename</div>
+  <div class="ctx-item ctx-style-item" onclick="ctxStyle()"><span class="ctx-item-icon">◐</span>Color / Style</div>
+  <div class="ctx-item" onclick="ctxLocate()"><span class="ctx-item-icon">◎</span>Zoom to</div>
+  <div class="ctx-item danger" onclick="ctxDelete()"><span class="ctx-item-icon">✕</span>Delete</div>
+</div>
+
+<!-- Shape style panel -->
+<div id="shape-style-panel">
+  <h5>STYLE</h5>
+  <div class="ssp-row">
+    <span class="ssp-label">COLOR</span>
+    <div class="ssp-colors" id="ssp-colors">
+      <div class="ssp-color selected" style="background:#f59e0b;" data-color="#f59e0b" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#ef4444;" data-color="#ef4444" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#22c55e;" data-color="#22c55e" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#3b82f6;" data-color="#3b82f6" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#a855f7;" data-color="#a855f7" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#fff;"    data-color="#ffffff" onclick="selectShapeColor(this)"></div>
+      <div class="ssp-color" style="background:#5a6378;" data-color="#5a6378" onclick="selectShapeColor(this)"></div>
+    </div>
+  </div>
+  <div class="ssp-row" id="ssp-fill-row">
+    <span class="ssp-label">FILL</span>
+    <input type="range" class="ssp-slider" id="ssp-fill" min="0" max="100" value="15" oninput="updateShapeStyle()">
+    <span style="font-size:9px;color:#5a6378;width:28px;" id="ssp-fill-val">15%</span>
+  </div>
+  <div class="ssp-row" id="ssp-stroke-row">
+    <span class="ssp-label">STROKE</span>
+    <input type="range" class="ssp-slider" id="ssp-stroke" min="1" max="6" value="2" oninput="updateShapeStyle()">
+    <span style="font-size:9px;color:#5a6378;width:28px;" id="ssp-stroke-val">2px</span>
+  </div>
+  <div class="ssp-btns">
+    <button class="mf-btn" onclick="document.getElementById('shape-style-panel').style.display='none'">CLOSE</button>
+    <button class="mf-btn primary" onclick="applyShapeStyle()">APPLY</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="app-nav.js"></script>
+<script src="infra-layers.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// AEGIS V3 — Map Workspace
+// ═══════════════════════════════════════════════════════════════
+
+// ── Preferences (persisted to localStorage) ───────────────────
+const PREFS_KEY = 'aegis-workspace-prefs';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; } })();
+function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {} }
+
+// ── Themes ────────────────────────────────────────────────────
+const THEMES = {
+  default: { bg:'#050810', panel:'rgba(11,15,28,.94)', card:'#0e1220',
+    text:'#c8d0e0', muted:'#5a6378', dim:'#3a4155',
+    border:'rgba(255,255,255,0.08)', border2:'rgba(255,255,255,0.16)',
+    accent:'#f59e0b', bodyBg:'#050810' },
+  light:   { bg:'#f0f4f8', panel:'rgba(255,255,255,.97)', card:'#e8eef5',
+    text:'#1e293b', muted:'#64748b', dim:'#94a3b8',
+    border:'rgba(0,0,0,0.12)', border2:'rgba(0,0,0,0.22)',
+    accent:'#d97706', bodyBg:'#e2e8f0' },
+  green:   { bg:'#021002', panel:'rgba(6,24,6,.96)', card:'#041204',
+    text:'#00e600', muted:'#009900', dim:'#006600',
+    border:'rgba(0,200,0,0.15)', border2:'rgba(0,200,0,0.28)',
+    accent:'#00ff00', bodyBg:'#010801' },
+  blue:    { bg:'#020a14', panel:'rgba(6,18,32,.96)', card:'#071628',
+    text:'#bfdbfe', muted:'#60a5fa', dim:'#1d4ed8',
+    border:'rgba(59,130,246,0.18)', border2:'rgba(59,130,246,0.30)',
+    accent:'#3b82f6', bodyBg:'#020a14' },
+};
+
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.default;
+  const r = document.documentElement;
+  r.style.setProperty('--c-bg',      t.bg);
+  r.style.setProperty('--c-panel',   t.panel);
+  r.style.setProperty('--c-card',    t.card);
+  r.style.setProperty('--c-text',    t.text);
+  r.style.setProperty('--c-muted',   t.muted);
+  r.style.setProperty('--c-dim',     t.dim);
+  r.style.setProperty('--c-border',  t.border);
+  r.style.setProperty('--c-border2', t.border2);
+  r.style.setProperty('--c-amber',   t.accent);
+  document.body.style.background = t.bodyBg;
+  prefs.theme = name;
+  savePrefs();
+}
+
+// ── Tile layers ───────────────────────────────────────────────
+const TILE_LAYERS = {
+  'osm-default': { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap', subdomains:'abc' },
+  'osm-dark':    { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CartoDB', subdomains:'abcd' },
+  'osm-light':   { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr:'© CartoDB', subdomains:'abcd' },
+  'satellite':   { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', subdomains:'' },
+  'terrain':     { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr:'© OpenTopoMap', maxZoom:17, subdomains:'abc' },
+};
+
+// ── State ─────────────────────────────────────────────────────
+const S = {
+  activeTool: 'pan',
+  activeLayer: prefs.layer || 'osm-default',
+  leafletLayer: null,
+  markers: [],
+  shapes: [],
+  facilities: [],
+  riskFilters: new Set(['critical','hazardous','high','medium','low']),
+  boundaryMaskLayer: null,
+  boundaryMaskEnabled: true,
+  draw: {
+    active: false,
+    circleCenter: null, circlePreviewLayer: null, circleCenterMarker: null,
+    polygonPoints: [], polygonPreviewLine: null, polygonPreviewPoly: null,
+    rectStart: null, rectPreviewLayer: null,
+    measurePoints: [], measureLine: null,
+  },
+  ctxTarget: null,
+  // Pending marker: store latlng separately, never reset until confirmed/cancelled
+  pendingLatlng: null,
+  pendingColor: '#f59e0b',
+};
+
+// ── Map init ──────────────────────────────────────────────────
+const map = L.map('map', {
+  zoomControl: false,
+  attributionControl: true,
+  minZoom: 2, maxZoom: 19,
+  maxBounds: [[-90,-180],[90,180]],
+  maxBoundsViscosity: 0.9,
+}).setView([20, 0], 2);
+
+L.control.zoom({ position:'bottomright' }).addTo(map);
+L.control.scale({ position:'bottomleft', imperial:false }).addTo(map);
+
+// Layer groups
+const maskGroup     = L.layerGroup().addTo(map); // boundary mask — BELOW everything
+const areaOutline   = L.layerGroup().addTo(map);
+const scanGridGroup = L.layerGroup().addTo(map);
+const markerGroup   = L.layerGroup().addTo(map);
+const shapeGroup    = L.layerGroup().addTo(map);
+const facilityGroup = L.layerGroup().addTo(map);
+const measureGroup  = L.layerGroup().addTo(map);
+const drawGroup     = L.layerGroup().addTo(map);
+
+const scanGridRects = {};
+
+// ── Disable Leaflet click propagation from all HTML panels ────
+// Must run after DOM is ready
+window.addEventListener('DOMContentLoaded', () => {
+  ['left-panel','marker-form','ctx-menu','shape-style-panel','bottom-bar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      L.DomEvent.disableClickPropagation(el);
+      L.DomEvent.disableScrollPropagation(el);
+    }
+  });
+});
+
+// ── Layer management ──────────────────────────────────────────
+function setLayer(key, btn) {
+  document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  else document.querySelector(`[data-layer="${key}"]`)?.classList.add('active');
+  S.activeLayer = key;
+  if (S.leafletLayer) map.removeLayer(S.leafletLayer);
+  const cfg = TILE_LAYERS[key] || TILE_LAYERS['osm-default'];
+  S.leafletLayer = L.tileLayer(cfg.url, {
+    attribution: cfg.attr, maxZoom: cfg.maxZoom || 19, subdomains: cfg.subdomains || 'abc',
+  }).addTo(map);
+  prefs.layer = key;
+  savePrefs();
+}
+// Apply persisted layer on load
+setLayer(S.activeLayer, null);
+
+// ── Tool management ───────────────────────────────────────────
+const TOOL_HINTS = {
+  'pan':           'Click and drag to pan. Scroll to zoom.',
+  'marker':        'Click anywhere on the map to place a marker.',
+  'rectangle':     'Click once to start. Click again to finish rectangle.',
+  'circle':        '1st click: center. 2nd click: radius. Move mouse to preview.',
+  'polygon':       'Click to add vertices. Double-click to close. Right-click to undo last.',
+  'measure-dist':  'Click to add points. Double-click to finish.',
+  'measure-area':  'Click to add vertices. Double-click to calculate.',
+  'facilities':    'Facility overlay. Use risk filters to show/hide categories.',
+};
+
+function setTool(tool, btn) {
+  cancelDraw();
+  S.activeTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  else document.getElementById('tool-' + tool)?.classList.add('active');
+  document.body.className = document.body.className
+    .replace(/\btool-\S+/g, '').trim();
+  if (tool !== 'pan' && tool !== 'facilities') document.body.classList.add('tool-draw');
+  if (tool === 'marker') document.body.classList.add('tool-marker');
+  if (tool.startsWith('measure')) document.body.classList.add('tool-measure');
+  document.getElementById('tool-hint').textContent = TOOL_HINTS[tool] || '';
+  document.getElementById('bb-tool').textContent   = tool.toUpperCase().replace(/-/g,' ');
+  if (tool === 'facilities') reloadFacilities();
+}
+
+// ── Map events ────────────────────────────────────────────────
+map.on('click',       onMapClick);
+map.on('dblclick',    onMapDblClick);
+map.on('mousemove',   onMapMouseMove);
+map.on('contextmenu', onMapRightClick);
+map.on('zoomend', () => {
+  document.getElementById('bb-zoom').textContent = map.getZoom();
+});
+map.on('mousemove', e => {
+  document.getElementById('bb-coords').textContent =
+    e.latlng.lat.toFixed(5) + ' / ' + e.latlng.lng.toFixed(5);
+});
+
+function onMapClick(e) {
+  hideContextMenu();
+  const t = S.activeTool;
+
+  if (t === 'marker') {
+    // Store latlng BEFORE showing form — never null after this
+    S.pendingLatlng = L.latLng(e.latlng.lat, e.latlng.lng);
+    showMarkerForm(e.originalEvent.clientX, e.originalEvent.clientY);
+    return;
+  }
+  if (t === 'rectangle') {
+    if (!S.draw.rectStart) { S.draw.rectStart = e.latlng; S.draw.active = true; }
+    else finalizeRect(e.latlng);
+    return;
+  }
+  if (t === 'circle') {
+    if (!S.draw.circleCenter) {
+      S.draw.circleCenter = e.latlng; S.draw.active = true;
+      S.draw.circleCenterMarker = L.circleMarker(e.latlng,
+        { radius:5, color:'#f59e0b', fillColor:'#f59e0b', fillOpacity:1, weight:1 })
+        .addTo(drawGroup);
+    } else finalizeCircle(e.latlng);
+    return;
+  }
+  if (t === 'polygon') {
+    S.draw.active = true;
+    S.draw.polygonPoints.push(e.latlng);
+    updatePolygonPreview();
+    return;
+  }
+  if (t === 'measure-dist' || t === 'measure-area') {
+    S.draw.active = true;
+    S.draw.measurePoints.push(e.latlng);
+    updateMeasurePreview();
+    return;
+  }
+}
+
+function onMapDblClick(e) {
+  L.DomEvent.stopPropagation(e);
+  const t = S.activeTool;
+  if (t === 'polygon') {
+    // The 2nd click of the double-click already added a point — remove it
+    if (S.draw.polygonPoints.length > 0) S.draw.polygonPoints.pop();
+    if (S.draw.polygonPoints.length >= 3) finalizePolygon();
+    else cancelDraw();
+    return;
+  }
+  if (t === 'measure-dist') {
+    if (S.draw.measurePoints.length > 0) S.draw.measurePoints.pop();
+    finalizeMeasureDist(); return;
+  }
+  if (t === 'measure-area') {
+    if (S.draw.measurePoints.length > 0) S.draw.measurePoints.pop();
+    finalizeMeasureArea(); return;
+  }
+}
+
+function onMapMouseMove(e) {
+  const d = S.draw;
+  if (S.activeTool === 'rectangle' && d.rectStart) {
+    if (d.rectPreviewLayer) drawGroup.removeLayer(d.rectPreviewLayer);
+    d.rectPreviewLayer = L.rectangle([d.rectStart, e.latlng], rectStyle(true)).addTo(drawGroup);
+    return;
+  }
+  if (S.activeTool === 'circle' && d.circleCenter) {
+    const r = d.circleCenter.distanceTo(e.latlng);
+    if (d.circlePreviewLayer) drawGroup.removeLayer(d.circlePreviewLayer);
+    d.circlePreviewLayer = L.circle(d.circleCenter, { radius:r, ...circleStyle(true) }).addTo(drawGroup);
+    setMeasure('Radius: ' + fmtDist(r));
+    return;
+  }
+  if (S.activeTool === 'polygon' && d.polygonPoints.length > 0) { updatePolygonPreview(e.latlng); return; }
+  if ((S.activeTool === 'measure-dist' || S.activeTool === 'measure-area') && d.measurePoints.length > 0) {
+    updateMeasurePreview(e.latlng); return;
+  }
+}
+
+function onMapRightClick(e) {
+  const t = S.activeTool;
+  if (t === 'polygon' && S.draw.polygonPoints.length > 0) {
+    S.draw.polygonPoints.pop(); updatePolygonPreview(); return;
+  }
+  if ((t === 'measure-dist' || t === 'measure-area') && S.draw.measurePoints.length > 0) {
+    S.draw.measurePoints.pop(); updateMeasurePreview(); return;
+  }
+  hideContextMenu();
+}
+
+// ── Drawing ───────────────────────────────────────────────────
+let currentShapeColor = '#f59e0b';
+
+function setDrawColor(color) {
+  currentShapeColor = color;
+  // Update active color swatch indicator in toolbar
+  document.querySelectorAll('.draw-color-swatch').forEach(el =>
+    el.classList.toggle('selected', el.dataset.color === color));
+  document.getElementById('active-color-dot').style.background = color;
+}
+
+function rectStyle(preview=false)   { return { color:currentShapeColor, weight:preview?1.5:2, fillColor:currentShapeColor, fillOpacity:preview?.08:.15, dashArray:preview?'4 3':null }; }
+function circleStyle(preview=false) { return { color:currentShapeColor, weight:preview?1.5:2, fillColor:currentShapeColor, fillOpacity:preview?.08:.15, dashArray:preview?'4 3':null }; }
+function polyStyle()                { return { color:currentShapeColor, weight:2, fillColor:currentShapeColor, fillOpacity:0.15 }; }
+
+function finalizeRect(endLatlng) {
+  const d = S.draw;
+  if (d.rectPreviewLayer) drawGroup.removeLayer(d.rectPreviewLayer);
+  const rect = L.rectangle([d.rectStart, endLatlng], rectStyle()).addTo(shapeGroup);
+  registerShape(rect, 'rectangle');
+  cancelDraw();
+}
+function finalizeCircle(endLatlng) {
+  const d = S.draw;
+  const r = d.circleCenter.distanceTo(endLatlng);
+  if (d.circlePreviewLayer) drawGroup.removeLayer(d.circlePreviewLayer);
+  const circle = L.circle(d.circleCenter, { radius:r, ...circleStyle() }).addTo(shapeGroup);
+  registerShape(circle, 'circle');
+
+  // Count facilities within radius
+  const inside = S.facilities.filter(f =>
+    d.circleCenter.distanceTo(L.latLng(f.latitude, f.longitude)) <= r
+  );
+  const msg = `Radius: ${fmtDist(r)} · ${inside.length} facilit${inside.length!==1?'ies':'y'} inside`;
+  setMeasure(msg);
+
+  if (inside.length > 0) {
+    // Build breakdown by risk level
+    const byRisk = {};
+    inside.forEach(f => { const rl = f.risk_level||'?'; byRisk[rl] = (byRisk[rl]||0)+1; });
+    const RL_ORDER = ['critical','hazardous','high','medium','low'];
+    const breakdown = RL_ORDER.filter(r => byRisk[r]).map(r =>
+      `<span style="color:${RISK_COLORS[r]||'#888'}">${byRisk[r]}× ${r}</span>`
+    ).join(' &nbsp;');
+    circle.bindPopup(`<div style="font-family:'Roboto Mono',monospace;background:#0b0f1c;color:#c8d0e0;
+      border:1px solid rgba(255,255,255,0.12);border-left:3px solid #f59e0b;padding:12px 14px;min-width:180px;">
+      <div style="font-weight:700;font-size:12px;color:#fff;margin-bottom:6px;">⬤ ${inside.length} FACILITIES</div>
+      <div style="font-size:9px;line-height:1.8;">${breakdown}</div>
+      <div style="font-size:8px;color:#3a4155;margin-top:6px;">Radius: ${fmtDist(r)}</div>
+    </div>`, { className:'aegis-popup' }).openPopup();
+  }
+
+  cancelDraw();
+}
+function updatePolygonPreview(moveLatlng) {
+  const d = S.draw;
+  if (d.polygonPreviewLine) drawGroup.removeLayer(d.polygonPreviewLine);
+  if (d.polygonPreviewPoly) drawGroup.removeLayer(d.polygonPreviewPoly);
+  const pts = moveLatlng ? [...d.polygonPoints, moveLatlng] : [...d.polygonPoints];
+  if (pts.length < 2) return;
+  d.polygonPreviewLine = L.polyline(pts, { color:currentShapeColor, weight:2, dashArray:'4 3', opacity:.7 }).addTo(drawGroup);
+  if (pts.length >= 3) d.polygonPreviewPoly = L.polygon(pts, { color:currentShapeColor, weight:1, fillColor:currentShapeColor, fillOpacity:.08 }).addTo(drawGroup);
+}
+function finalizePolygon() {
+  const d = S.draw;
+  if (d.polygonPoints.length < 3) { cancelDraw(); return; }
+  const poly = L.polygon(d.polygonPoints, polyStyle()).addTo(shapeGroup);
+  registerShape(poly, 'polygon');
+  const area = calcArea(d.polygonPoints), perim = calcPerimeter(d.polygonPoints);
+  setMeasure('Area: ' + fmtArea(area) + ' · Perimeter: ' + fmtDist(perim));
+  cancelDraw();
+}
+function cancelDraw() {
+  const d = S.draw;
+  [d.circlePreviewLayer, d.circleCenterMarker, d.polygonPreviewLine, d.polygonPreviewPoly, d.rectPreviewLayer, d.measureLine]
+    .forEach(l => { if (l) { try { drawGroup.removeLayer(l); } catch {} } });
+  Object.assign(d, {
+    circleCenter:null, circlePreviewLayer:null, circleCenterMarker:null,
+    polygonPoints:[], polygonPreviewLine:null, polygonPreviewPoly:null,
+    rectStart:null, rectPreviewLayer:null, measurePoints:[], measureLine:null, active:false
+  });
+}
+
+// ── Measurement ───────────────────────────────────────────────
+function updateMeasurePreview(moveLatlng) {
+  const d = S.draw;
+  if (d.measureLine) drawGroup.removeLayer(d.measureLine);
+  const pts = moveLatlng ? [...d.measurePoints, moveLatlng] : [...d.measurePoints];
+  if (pts.length < 2) return;
+  d.measureLine = L.polyline(pts, { color:'#f59e0b', weight:2, dashArray:'6 4', opacity:.8 }).addTo(drawGroup);
+  if (S.activeTool === 'measure-dist') {
+    let tot = 0; for (let i=1;i<pts.length;i++) tot += pts[i-1].distanceTo(pts[i]);
+    setMeasure('Distance: ' + fmtDist(tot));
+  }
+  if (S.activeTool === 'measure-area' && pts.length >= 3)
+    setMeasure('Area: ' + fmtArea(calcArea(pts)) + ' · Perimeter: ' + fmtDist(calcPerimeter(pts)));
+}
+function finalizeMeasureDist() {
+  const d = S.draw; let tot = 0;
+  for (let i=1;i<d.measurePoints.length;i++) tot += d.measurePoints[i-1].distanceTo(d.measurePoints[i]);
+  setMeasure('Total distance: ' + fmtDist(tot)); cancelDraw();
+}
+function finalizeMeasureArea() {
+  const d = S.draw;
+  if (d.measurePoints.length >= 3)
+    setMeasure('Area: ' + fmtArea(calcArea(d.measurePoints)) + ' · Perimeter: ' + fmtDist(calcPerimeter(d.measurePoints)));
+  cancelDraw();
+}
+function setMeasure(txt) { document.getElementById('bb-measure').textContent = txt; }
+
+function calcArea(pts) {
+  const n = pts.length; let a = 0;
+  for (let i=0;i<n;i++) {
+    const j=(i+1)%n, p1=pts[i], p2=pts[j];
+    a += (p2.lng - p1.lng) * Math.PI/180 *
+         (2 + Math.sin(p1.lat*Math.PI/180) + Math.sin(p2.lat*Math.PI/180));
+  }
+  return Math.abs(a * 6371000 * 6371000 / 2);
+}
+function calcPerimeter(pts) {
+  let p = 0;
+  for (let i=0;i<pts.length;i++) p += pts[i].distanceTo(pts[(i+1)%pts.length]);
+  return p;
+}
+function fmtDist(m) { return m >= 1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m'; }
+function fmtArea(m2) { return m2 >= 1e6 ? (m2/1e6).toFixed(3)+' km²' : Math.round(m2)+' m²'; }
+
+// ── Marker management ─────────────────────────────────────────
+function createMarkerIcon(color) {
+  return L.divIcon({
+    className:'',
+    html:`<div style="width:18px;height:18px;background:${color};border:2.5px solid rgba(255,255,255,0.85);
+      border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+      box-shadow:0 2px 8px rgba(0,0,0,.5);"></div>`,
+    iconSize:[18,18], iconAnchor:[9,18], popupAnchor:[0,-18]
+  });
+}
+
+function buildPopup(name, desc, color, lat, lng) {
+  return `<div style="
+    font-family:'Roboto Mono',monospace;
+    background:#0b0f1c;
+    color:#c8d0e0;
+    border:1px solid rgba(255,255,255,0.12);
+    padding:12px 14px;
+    min-width:160px;
+    font-size:11px;
+    line-height:1.5;
+  ">
+    <div style="font-weight:700;letter-spacing:1px;margin-bottom:4px;color:#fff;">${h(name)}</div>
+    ${desc ? `<div style="color:#5a6378;margin-bottom:6px;font-size:10px;">${h(desc)}</div>` : ''}
+    <div style="font-size:9px;color:#3a4155;letter-spacing:.5px;">${lat.toFixed(5)} / ${lng.toFixed(5)}</div>
+    ${color ? `<div style="width:8px;height:8px;border-radius:50%;background:${color};margin-top:6px;"></div>` : ''}
+  </div>`;
+}
+
+function buildFacilityPopup(f) {
+  const RISK_COLORS = { critical:'#f87171', hazardous:'#fb923c', high:'#fbbf24', medium:'#60a5fa', low:'#4ade80' };
+  const c = RISK_COLORS[f.risk_level] || '#c8d0e0';
+  return `<div style="
+    font-family:'Roboto Mono',monospace;
+    background:#0b0f1c;
+    color:#c8d0e0;
+    border:1px solid rgba(255,255,255,0.12);
+    border-left:3px solid ${c};
+    padding:12px 14px;
+    min-width:180px;
+    max-width:280px;
+    font-size:10px;
+    line-height:1.6;
+  ">
+    <div style="font-weight:700;font-size:12px;letter-spacing:1px;color:#fff;margin-bottom:4px;">${h(f.name||'Unknown')}</div>
+    <div style="margin-bottom:6px;">
+      <span style="color:${c};font-size:8px;letter-spacing:2px;font-weight:700;padding:1px 5px;border:1px solid ${c};background:${c}1a;">${(f.risk_level||'?').toUpperCase()}</span>
+      <span style="color:#5a6378;font-size:9px;margin-left:8px;">${h(f.category_name||f.category||'')}</span>
+    </div>
+    ${f.address ? `<div style="color:#5a6378;font-size:9px;margin-bottom:4px;">📍 ${h(f.address)}</div>` : ''}
+    <div style="font-size:8px;color:#3a4155;letter-spacing:.5px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px;">
+      ${parseFloat(f.latitude).toFixed(5)}° / ${parseFloat(f.longitude).toFixed(5)}°
+    </div>
+    <div style="font-size:8px;color:#3a4155;letter-spacing:.5px;">SOURCE: ${(f.source||'—').toUpperCase()}</div>
+  </div>`;
+}
+
+function showMarkerForm(px, py) {
+  const form = document.getElementById('marker-form');
+  document.getElementById('mf-name').value = '';
+  document.getElementById('mf-desc').value = '';
+  // Reset color selection
+  document.querySelectorAll('#mf-colors .ssp-color').forEach((el,i) => el.classList.toggle('selected', i===0));
+  S.pendingColor = '#f59e0b';
+  // Position near click, keep in viewport
+  const vw = window.innerWidth, vh = window.innerHeight;
+  form.style.left = Math.min(px + 14, vw - 256) + 'px';
+  form.style.top  = Math.min(py + 14, vh - 220) + 'px';
+  form.style.display = 'block';
+  setTimeout(() => document.getElementById('mf-name').focus(), 50);
+}
+
+function selectMarkerColor(el) {
+  document.querySelectorAll('#mf-colors .ssp-color').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+  S.pendingColor = el.dataset.color;
+}
+
+function confirmMarker() {
+  // Use pendingLatlng — stored at click time, never reset by the form
+  if (!S.pendingLatlng) { cancelMarker(); return; }
+  const name   = document.getElementById('mf-name').value.trim() || 'Marker';
+  const desc   = document.getElementById('mf-desc').value.trim();
+  const color  = S.pendingColor || '#f59e0b';
+  const latlng = S.pendingLatlng;
+
+  const id = 'mk-' + Date.now();
+  const leafletMarker = L.marker(latlng, { icon:createMarkerIcon(color) })
+    .addTo(markerGroup)
+    .bindPopup(buildPopup(name, desc, color, latlng.lat, latlng.lng), {
+      className:'aegis-popup', maxWidth:300
+    });
+
+  leafletMarker.on('contextmenu', e => {
+    L.DomEvent.stopPropagation(e);
+    showContextMenu(e.originalEvent.clientX, e.originalEvent.clientY, { type:'marker', id });
+  });
+  leafletMarker.on('click', () => leafletMarker.openPopup());
+
+  S.markers.push({ id, latlng, name, desc, color, leafletMarker });
+  cancelMarker();
+  renderMarkerList();
+  saveToStorage();
+}
+
+function cancelMarker() {
+  document.getElementById('marker-form').style.display = 'none';
+  // Don't clear S.pendingLatlng here — leave it in case user re-opens form
+}
+
+function renderMarkerList() {
+  const el = document.getElementById('marker-list');
+  if (!S.markers.length) { el.innerHTML = '<div style="font-size:9px;color:#3a4155;letter-spacing:1px;">No markers placed.</div>'; return; }
+  el.innerHTML = S.markers.map(m => `
+    <div class="marker-item" onclick="map.setView([${m.latlng.lat},${m.latlng.lng}],16)">
+      <div class="marker-dot" style="background:${m.color}"></div>
+      <span class="marker-name" title="${h(m.name)}">${h(m.name)}</span>
+      <button class="marker-del" onclick="event.stopPropagation();deleteMarker('${m.id}')">✕</button>
+    </div>`).join('');
+}
+
+function deleteMarker(id) {
+  const idx = S.markers.findIndex(m => m.id === id);
+  if (idx < 0) return;
+  markerGroup.removeLayer(S.markers[idx].leafletMarker);
+  S.markers.splice(idx, 1);
+  renderMarkerList(); saveToStorage();
+}
+function clearAllMarkers() { markerGroup.clearLayers(); S.markers = []; renderMarkerList(); saveToStorage(); }
+
+// ── Shape management ──────────────────────────────────────────
+let shapeIdCounter = 0;
+let ctxShapeId = null;
+
+function registerShape(leafletLayer, type) {
+  const id = 'sh-' + (++shapeIdCounter);
+  const shape = { id, type, leafletLayer, color:currentShapeColor, fillOpacity:.15, weight:2,
+    name: type.charAt(0).toUpperCase()+type.slice(1)+' '+shapeIdCounter };
+  S.shapes.push(shape);
+  leafletLayer.on('contextmenu', e => {
+    L.DomEvent.stopPropagation(e);
+    showContextMenu(e.originalEvent.clientX, e.originalEvent.clientY, { type:'shape', id });
+  });
+  renderShapeList(); saveToStorage();
+}
+
+function renderShapeList() {
+  const el = document.getElementById('shape-list');
+  if (!S.shapes.length) { el.innerHTML = '<div style="font-size:9px;color:#3a4155;letter-spacing:1px;">No shapes drawn.</div>'; return; }
+  el.innerHTML = S.shapes.map(s => `
+    <div class="marker-item" onclick="fitShape('${s.id}')">
+      <div class="marker-dot" style="background:${s.color};border-radius:2px;"></div>
+      <span class="marker-name">${h(s.name)}</span>
+      <button class="marker-del" onclick="event.stopPropagation();deleteShape('${s.id}')">✕</button>
+    </div>`).join('');
+}
+
+function fitShape(id) {
+  const s = S.shapes.find(s => s.id === id);
+  if (!s) return;
+  try { map.fitBounds(s.leafletLayer.getBounds(), { padding:[30,30] }); } catch {}
+}
+function deleteShape(id) {
+  const idx = S.shapes.findIndex(s => s.id === id);
+  if (idx < 0) return;
+  shapeGroup.removeLayer(S.shapes[idx].leafletLayer);
+  S.shapes.splice(idx, 1);
+  renderShapeList(); saveToStorage();
+}
+function clearAllShapes() { shapeGroup.clearLayers(); S.shapes = []; shapeIdCounter = 0; renderShapeList(); saveToStorage(); }
+
+// ── Context menu ──────────────────────────────────────────────
+function showContextMenu(px, py, target) {
+  S.ctxTarget = target;
+  const menu = document.getElementById('ctx-menu');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  menu.style.left = Math.min(px, vw-165) + 'px';
+  menu.style.top  = Math.min(py, vh-150) + 'px';
+  menu.style.display = '';
+  // Show/hide style option depending on target
+  const styleItem = menu.querySelector('.ctx-style-item');
+  if (styleItem) styleItem.style.display = target?.type === 'shape' ? '' : 'none';
+}
+function hideContextMenu() {
+  document.getElementById('ctx-menu').style.display = 'none';
+  document.getElementById('shape-style-panel').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('ctx-menu').contains(e.target) &&
+      !document.getElementById('shape-style-panel').contains(e.target)) hideContextMenu();
+});
+
+function ctxDelete() {
+  hideContextMenu();
+  if (!S.ctxTarget) return;
+  if (S.ctxTarget.type === 'marker') deleteMarker(S.ctxTarget.id);
+  if (S.ctxTarget.type === 'shape')  deleteShape(S.ctxTarget.id);
+}
+function ctxLocate() {
+  hideContextMenu();
+  if (!S.ctxTarget) return;
+  if (S.ctxTarget.type === 'marker') {
+    const m = S.markers.find(m => m.id === S.ctxTarget.id);
+    if (m) map.setView(m.latlng, 16);
+  }
+  if (S.ctxTarget.type === 'shape') fitShape(S.ctxTarget.id);
+}
+function ctxRename() {
+  hideContextMenu();
+  if (!S.ctxTarget) return;
+  const obj = S.ctxTarget.type === 'marker'
+    ? S.markers.find(m => m.id === S.ctxTarget.id)
+    : S.shapes.find(s => s.id === S.ctxTarget.id);
+  if (!obj) return;
+  const n = prompt('Rename:', obj.name);
+  if (n?.trim()) { obj.name = n.trim(); renderMarkerList(); renderShapeList(); saveToStorage(); }
+}
+function ctxStyle() {
+  const t = S.ctxTarget;
+  if (!t) return;
+
+  if (t.type === 'marker') {
+    // For markers — directly pick new color
+    const m = S.markers.find(m => m.id === t.id);
+    if (!m) { hideContextMenu(); return; }
+    ctxShapeId = null;
+    // Position style panel
+    const menu = document.getElementById('ctx-menu');
+    const rect = menu.getBoundingClientRect();
+    showStylePanel(rect.right + 4, rect.top, 'marker', m.color);
+    return;
+  }
+
+  if (t.type === 'shape') {
+    const s = S.shapes.find(s => s.id === t.id);
+    if (!s) { hideContextMenu(); return; }
+    ctxShapeId = t.id;
+    const menu = document.getElementById('ctx-menu');
+    const rect = menu.getBoundingClientRect();
+    showStylePanel(rect.right + 4, rect.top, 'shape', s.color, s.fillOpacity, s.weight);
+  }
+}
+
+function showStylePanel(px, py, targetType, color='#f59e0b', fillOp=0.15, weight=2) {
+  const panel = document.getElementById('shape-style-panel');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  panel.style.left = Math.min(px, vw - 210) + 'px';
+  panel.style.top  = Math.min(py, vh - 180) + 'px';
+
+  document.querySelectorAll('#ssp-colors .ssp-color').forEach(el =>
+    el.classList.toggle('selected', el.dataset.color === color));
+  const fillSlider = document.getElementById('ssp-fill');
+  const fillVal    = document.getElementById('ssp-fill-val');
+  const strokeSlider = document.getElementById('ssp-stroke');
+  const strokeVal    = document.getElementById('ssp-stroke-val');
+  if (fillSlider) { fillSlider.value = Math.round(fillOp * 100); fillVal.textContent = fillSlider.value + '%'; }
+  if (strokeSlider) { strokeSlider.value = weight; strokeVal.textContent = weight + 'px'; }
+  // Show/hide fill/stroke controls based on target
+  const fillRow   = document.getElementById('ssp-fill-row');
+  const strokeRow = document.getElementById('ssp-stroke-row');
+  if (fillRow)   fillRow.style.display   = targetType === 'shape' ? '' : 'none';
+  if (strokeRow) strokeRow.style.display = targetType === 'shape' ? '' : 'none';
+
+  panel.dataset.targetType = targetType;
+  panel.style.display = '';
+}
+
+function selectShapeColor(el) {
+  document.querySelectorAll('#ssp-colors .ssp-color').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function updateShapeStyle() {
+  const fv = document.getElementById('ssp-fill').value;
+  const sv = document.getElementById('ssp-stroke').value;
+  document.getElementById('ssp-fill-val').textContent   = fv + '%';
+  document.getElementById('ssp-stroke-val').textContent = sv + 'px';
+}
+function applyShapeStyle() {
+  const panel = document.getElementById('shape-style-panel');
+  const color  = document.querySelector('#ssp-colors .ssp-color.selected')?.dataset.color || '#f59e0b';
+  const fill   = parseInt(document.getElementById('ssp-fill').value || '15') / 100;
+  const weight = parseInt(document.getElementById('ssp-stroke').value || '2');
+  const type   = panel.dataset.targetType;
+
+  if (type === 'shape' && ctxShapeId) {
+    const s = S.shapes.find(s => s.id === ctxShapeId);
+    if (s) {
+      s.color = color; s.fillOpacity = fill; s.weight = weight;
+      s.leafletLayer.setStyle({ color, fillColor:color, fillOpacity:fill, weight });
+      renderShapeList(); saveToStorage();
+    }
+  }
+  if (type === 'marker') {
+    const id = S.ctxTarget?.id;
+    const m = S.markers.find(m => m.id === id);
+    if (m) {
+      m.color = color;
+      m.leafletMarker.setIcon(createMarkerIcon(color));
+      renderMarkerList(); saveToStorage();
+    }
+  }
+  panel.style.display = 'none';
+}
+
+// ── Boundary mask — diagonal hatch outside project area ───────
+function injectHatchDef() {
+  const svg = document.querySelector('#map .leaflet-overlay-pane svg');
+  if (!svg || svg.querySelector('#aegis-hatch')) return !!svg;
+  const ns = 'http://www.w3.org/2000/svg';
+  let defs = svg.querySelector('defs');
+  if (!defs) { defs = document.createElementNS(ns,'defs'); svg.insertBefore(defs, svg.firstChild); }
+  const pat = document.createElementNS(ns,'pattern');
+  pat.id = 'aegis-hatch';
+  pat.setAttribute('patternUnits','userSpaceOnUse');
+  pat.setAttribute('width','10'); pat.setAttribute('height','10');
+  pat.setAttribute('patternTransform','rotate(45)');
+  const ln = document.createElementNS(ns,'line');
+  ln.setAttribute('x1','0'); ln.setAttribute('y1','0');
+  ln.setAttribute('x2','0'); ln.setAttribute('y2','10');
+  ln.setAttribute('stroke','#94a3b8'); ln.setAttribute('stroke-width','1.4');
+  ln.setAttribute('stroke-opacity','0.32');
+  pat.appendChild(ln); defs.appendChild(pat);
+  return true;
+}
+
+function applyHatch(layer) {
+  if (!injectHatchDef()) return;
+  layer.eachLayer(sub => {
+    const el = sub.getElement?.();
+    if (!el) return;
+    el.setAttribute('fill','url(#aegis-hatch)');
+    el.setAttribute('fill-opacity','1');
+    el.setAttribute('stroke','#475569');
+    el.setAttribute('stroke-width','1.5');
+    el.setAttribute('stroke-opacity','0.5');
+  });
+}
+
+function buildBoundaryMask(geojson) {
+  const worldRing = [[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]];
+  const holes = [];
+  for (const f of (geojson.features || [])) {
+    const g = f.geometry; if (!g) continue;
+    if (g.type === 'Polygon') holes.push(g.coordinates[0]);
+    if (g.type === 'MultiPolygon') g.coordinates.forEach(p => holes.push(p[0]));
+  }
+  const layer = L.geoJSON({
+    type:'FeatureCollection',
+    features:[{ type:'Feature', geometry:{ type:'Polygon', coordinates:[worldRing,...holes] }, properties:{} }]
+  }, { style:{ color:'#475569', weight:1.5, fillColor:'transparent', fillOpacity:0, interactive:false } });
+
+  layer.on('add', function() {
+    requestAnimationFrame(() => applyHatch(this));
+    // Re-apply after map redraws (Leaflet resets inline styles on move)
+    map.on('moveend zoomend viewreset', () => {
+      if (S.boundaryMaskEnabled && S.boundaryMaskLayer) {
+        requestAnimationFrame(() => applyHatch(S.boundaryMaskLayer));
+      }
+    });
+  });
+  return layer;
+}
+
+function toggleBoundaryMask(enabled) {
+  S.boundaryMaskEnabled = enabled;
+  if (enabled && S.boundaryMaskLayer) {
+    maskGroup.addLayer(S.boundaryMaskLayer);
+  } else if (S.boundaryMaskLayer) {
+    maskGroup.removeLayer(S.boundaryMaskLayer);
+  }
+  prefs.boundaryMask = enabled;
+  savePrefs();
+}
+
+// ── Facility overlay ──────────────────────────────────────────
+const RISK_COLORS = { critical:'#d32f2f', hazardous:'#f57c00', high:'#fbc02d', medium:'#1976d2', low:'#388e3c' };
+
+function getFacilityRiskLevel(f) {
+  const scale = window.AEGIS_HAZARD_SCALE;
+  if (scale && scale[f.category]) return scale[f.category];
+  return f.risk_level || 'medium';
+}
+
+function createFacilityIcon(rl) {
+  const c = RISK_COLORS[rl] || '#757575';
+  return L.divIcon({
+    className:'',
+    html:`<div style="width:13px;height:13px;background:${c};border:2px solid rgba(255,255,255,0.65);border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>`,
+    iconSize:[13,13], iconAnchor:[6,6], popupAnchor:[0,-8]
+  });
+}
+
+function toggleRisk(risk, btn) {
+  btn.classList.toggle('active');
+  if (S.riskFilters.has(risk)) S.riskFilters.delete(risk);
+  else S.riskFilters.add(risk);
+  renderFacilities();
+}
+
+function renderFacilities() {
+  facilityGroup.clearLayers();
+  const visible = S.facilities.filter(f => S.riskFilters.has(getFacilityRiskLevel(f)));
+  visible.forEach(f => {
+    const rl = getFacilityRiskLevel(f);
+    L.marker([f.latitude, f.longitude], { icon:createFacilityIcon(rl) })
+      .addTo(facilityGroup)
+      .bindPopup(buildFacilityPopup({...f, risk_level:rl}), { className:'aegis-popup', maxWidth:300 });
+  });
+  document.getElementById('fac-count').textContent = visible.length + ' / ' + S.facilities.length + ' facilities';
+}
+
+async function reloadFacilities() {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/facilities');
+    S.facilities = r.data || [];
+    renderFacilities();
+  } catch {}
+}
+
+// ── Scan grid ────────────────────────────────────────────────
+window.updateMapScanGrid = function(s) {
+  const cells  = s?.cells || [];
+  const STATUS = {
+    pending:  { color:'#3a4155', weight:.4, fillColor:'#3a4155', fillOpacity:.05 },
+    scanning: { color:'#f59e0b', weight:1.5, fillColor:'#f59e0b', fillOpacity:.2 },
+    done:     { color:'#22c55e', weight:.5, fillColor:'#22c55e', fillOpacity:.1 },
+    failed:   { color:'#ef4444', weight:.5, fillColor:'#ef4444', fillOpacity:.08 },
+  };
+  cells.forEach(c => {
+    const style = STATUS[c.status] || STATUS.pending;
+    if (scanGridRects[c.index]) scanGridRects[c.index].setStyle(style);
+    else scanGridRects[c.index] = L.rectangle(
+      [[c.south,c.west],[c.north,c.east]], { ...style, interactive:false }
+    ).addTo(scanGridGroup);
+  });
+  if (!cells.length && s?.status === 'idle') {
+    scanGridGroup.clearLayers();
+    Object.keys(scanGridRects).forEach(k => delete scanGridRects[k]);
+  }
+};
+
+// ── Storage ───────────────────────────────────────────────────
+function saveToStorage() {
+  const key = 'aegis-map-' + (window.AEGIS_PROJECT?.id || 'default');
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      markers: S.markers.map(m => ({ id:m.id, lat:m.latlng.lat, lng:m.latlng.lng, name:m.name, desc:m.desc||'', color:m.color })),
+    }));
+  } catch {}
+}
+function loadFromStorage() {
+  const key = 'aegis-map-' + (window.AEGIS_PROJECT?.id || 'default');
+  try {
+    const data = JSON.parse(localStorage.getItem(key) || '{}');
+    (data.markers || []).forEach(m => {
+      const latlng = L.latLng(m.lat, m.lng);
+      const lm = L.marker(latlng, { icon:createMarkerIcon(m.color) })
+        .addTo(markerGroup)
+        .bindPopup(buildPopup(m.name, m.desc, m.color, m.lat, m.lng), { className:'aegis-popup' });
+      lm.on('contextmenu', e => {
+        L.DomEvent.stopPropagation(e);
+        showContextMenu(e.originalEvent.clientX, e.originalEvent.clientY, { type:'marker', id:m.id });
+      });
+      lm.on('click', () => lm.openPopup());
+      S.markers.push({ ...m, latlng, leafletMarker:lm });
+    });
+    renderMarkerList();
+  } catch {}
+}
+
+// ── Search ────────────────────────────────────────────────────
+let _searchTimer = null;
+
+function debounceSearch(q) {
+  document.getElementById('map-search-clear').style.display = q ? '' : 'none';
+  clearTimeout(_searchTimer);
+  if (!q.trim()) { hideSearchResults(); return; }
+  _searchTimer = setTimeout(() => runSearch(q.trim()), 280);
+}
+
+async function runSearch(q) {
+  const ql = q.toLowerCase();
+  const results = [];
+
+  // 1. Facilities
+  S.facilities.slice(0, 500).forEach(f => {
+    const name = (f.name||'').toLowerCase(), cat = (f.category_name||f.category||'').toLowerCase();
+    if (name.includes(ql) || cat.includes(ql)) {
+      results.push({ type:'facility', label:f.name||'?', sub:f.category_name||f.category||'',
+        lat:parseFloat(f.latitude), lng:parseFloat(f.longitude), risk:getFacilityRiskLevel(f) });
+    }
+  });
+
+  // 2. Markers
+  S.markers.forEach(m => {
+    if ((m.name||'').toLowerCase().includes(ql)) {
+      results.push({ type:'marker', label:m.name, sub:'Marker',
+        lat:m.latlng.lat, lng:m.latlng.lng });
+    }
+  });
+
+  // 3. Geographic (Nominatim) — debounced, only if < 10 local results
+  if (results.length < 10 && q.length >= 3) {
+    try {
+      const r = await axios.get(window.AEGIS_API + '/api/osm/search', { params:{ q, limit:4 } });
+      (r.data||[]).forEach(place => {
+        results.push({ type:'place', label:place.display_name?.split(',')[0]||place.name,
+          sub:(place.display_name||'').split(',').slice(1,3).join(',').trim(),
+          lat:parseFloat(place.lat), lng:parseFloat(place.lon) });
+      });
+    } catch { /* osm unavailable */ }
+  }
+
+  renderSearchResults(results.slice(0, 12));
+}
+
+function renderSearchResults(results) {
+  const el = document.getElementById('search-results');
+  if (!results.length) { el.style.display = 'none'; return; }
+
+  const TYPE_CFG = {
+    facility: { cls:'search-result-type--facility', lbl:'FAC' },
+    marker:   { cls:'search-result-type--marker',   lbl:'MRK' },
+    place:    { cls:'search-result-type--place',     lbl:'GEO' },
+  };
+
+  el.innerHTML = results.map((r, i) => {
+    const cfg = TYPE_CFG[r.type] || TYPE_CFG.place;
+    return `<div class="search-result-item" onclick="selectSearchResult(${i})">
+      <span class="search-result-type ${cfg.cls}">${cfg.lbl}</span>
+      <span class="search-result-name">${h(r.label)}</span>
+      <span class="search-result-sub">${h(r.sub||'')}</span>
+    </div>`;
+  }).join('');
+
+  el._data = results;
+  el.style.display = '';
+}
+
+function selectSearchResult(i) {
+  const results = document.getElementById('search-results')._data || [];
+  const r = results[i];
+  if (!r) return;
+  map.setView([r.lat, r.lng], r.type === 'place' ? 13 : 17);
+  clearSearch();
+}
+
+function searchKeydown(e) {
+  if (e.key === 'Escape') clearSearch();
+}
+
+function clearSearch() {
+  document.getElementById('map-search').value = '';
+  document.getElementById('map-search-clear').style.display = 'none';
+  hideSearchResults();
+}
+
+function hideSearchResults() {
+  document.getElementById('search-results').style.display = 'none';
+}
+
+// Close on outside click
+document.addEventListener('click', e => {
+  if (!document.getElementById('map-search')?.contains(e.target) &&
+      !document.getElementById('search-results')?.contains(e.target)) {
+    hideSearchResults();
+  }
+});
+
+// ── URL coords (from facility database "MAP" button) ──────────
+function checkUrlCoords() {
+  const p = new URLSearchParams(window.location.search);
+  const lat = parseFloat(p.get('lat')), lng = parseFloat(p.get('lng')), zoom = parseInt(p.get('zoom')||'16');
+  if (!isNaN(lat) && !isNaN(lng)) setTimeout(() => map.setView([lat, lng], zoom), 600);
+}
+
+// ── Boot ──────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  // Global axios credential flag (cookies)
+  axios.defaults.withCredentials = true;
+
+  applyTheme(prefs.theme || 'default');
+  // Leaflet popup style override
+  const style = document.createElement('style');
+  style.textContent = `.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#0b0f1c!important;border:none!important;box-shadow:0 4px 20px rgba(0,0,0,.6)!important;border-radius:0!important;padding:0!important;} .leaflet-popup-content{margin:0!important;} .aegis-popup .leaflet-popup-content-wrapper{border:1px solid rgba(255,255,255,0.12)!important;}`;
+  document.head.appendChild(style);
+
+  checkUrlCoords();
+  renderMarkerList();
+  renderShapeList();
+  setDrawColor(currentShapeColor);
+
+  const waitProject = setInterval(() => {
+    const p = window.AEGIS_PROJECT; if (!p) return;
+    clearInterval(waitProject);
+
+    document.getElementById('lp-project-id').textContent = p.id.slice(0,8).toUpperCase();
+    document.getElementById('bb-project').textContent    = p.name;
+
+    // Load hazard scale for this project
+    axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/hazard-scale')
+      .then(r => { window.AEGIS_HAZARD_SCALE = r.data.scale || {}; })
+      .catch(() => { window.AEGIS_HAZARD_SCALE = {}; });
+
+    if (p.area?.geojson) {
+      try {
+        const outlineLayer = L.geoJSON(p.area.geojson, {
+          style:{ color:'#f59e0b', weight:1.5, fillColor:'#f59e0b', fillOpacity:.03, dashArray:'6 4' }
+        }).addTo(areaOutline);
+        const bounds = outlineLayer.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, { padding:[50,50] });
+
+        S.boundaryMaskLayer = buildBoundaryMask(p.area.geojson);
+        if (prefs.boundaryMask !== false) {
+          maskGroup.addLayer(S.boundaryMaskLayer);
+          S.boundaryMaskEnabled = true;
+        }
+        const cb = document.getElementById('setting-boundary-mask');
+        if (cb) cb.checked = (prefs.boundaryMask !== false);
+      } catch(e) { console.warn('Area/mask error:', e); }
+    }
+
+    loadFromStorage();
+    reloadFacilities();
+    initInfraLayers(map);
+  }, 150);
+});
+
+// ── Util ─────────────────────────────────────────────────────
+function h(s) { const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+</script>
+</body>
+</html>

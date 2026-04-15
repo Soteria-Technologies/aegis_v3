@@ -1,0 +1,66 @@
+[
+  {
+    "id": "bc0f40a4-06d8-4769-ab07-6a860a63c188",
+    "name": "Taipei TEST",
+    "mode": "risk_analysis",
+    "area_name": "Custom area",
+    "created_at": "2026-04-10T10:40:16.463Z",
+    "updated_at": "2026-04-10T10:40:16.463Z"
+  },
+  {
+    "id": "5ca439c7-ad57-43cc-a8dd-339d6c1ec950",
+    "name": "Taipei TEST 2",
+    "mode": "simulation",
+    "area_name": "Custom area",
+    "created_at": "2026-04-14T03:32:12.874Z",
+    "updated_at": "2026-04-14T03:32:12.874Z"
+  },
+  {
+    "id": "b390fbc9-ef24-40b1-82cb-f9f2f3900b71",
+    "name": "test",
+    "mode": "simulation",
+    "area_name": "花蓮市,  花蓮縣,  970",
+    "created_at": "2026-04-14T05:30:03.536Z",
+    "updated_at": "2026-04-14T05:36:54.078Z"
+  },
+  {
+    "id": "bec1998e-f2ef-4054-a338-a884ce916386",
+    "name": "Test Bordeaux",
+    "mode": "simulation",
+    "area_name": "Bordeaux,  Gironde,  Nouvelle-Aquitaine",
+    "created_at": "2026-04-14T05:56:13.534Z",
+    "updated_at": "2026-04-14T05:56:13.534Z"
+  },
+  {
+    "id": "5f8f8a0b-bfe7-4d0c-bcf9-8270f6834aa9",
+    "name": "Test boucau",
+    "mode": "simulation",
+    "area_name": "Boucau,  Bayonne,  Pyrénées-Atlantiques",
+    "created_at": "2026-04-14T05:58:39.286Z",
+    "updated_at": "2026-04-14T06:00:54.326Z"
+  },
+  {
+    "id": "61ff9c69-4897-4a3b-a38f-bb733d5baf41",
+    "name": "Lyon",
+    "mode": "simulation",
+    "area_name": "Lyon,  Métropole de Lyon,  Rhône",
+    "created_at": "2026-04-14T06:25:16.170Z",
+    "updated_at": "2026-04-14T06:25:16.170Z"
+  },
+  {
+    "id": "9bda8173-d936-4f62-bdcf-5ee1d1c22777",
+    "name": "Paris",
+    "mode": "simulation",
+    "area_name": "Paris,  Île-de-France,  France métropolitaine",
+    "created_at": "2026-04-14T10:49:12.016Z",
+    "updated_at": "2026-04-14T11:20:25.291Z"
+  },
+  {
+    "id": "32a4c0ab-ddd9-42d9-9e49-643442f99611",
+    "name": "Nice",
+    "mode": "simulation",
+    "area_name": "Chambéry,  Savoie,  Auvergne-Rhône-Alpes",
+    "created_at": "2026-04-14T16:06:08.012Z",
+    "updated_at": "2026-04-14T16:08:00.721Z"
+  }
+]

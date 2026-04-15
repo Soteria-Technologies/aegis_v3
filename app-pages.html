@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS V3</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style-app.css"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#050810;font-family:'Roboto Mono',monospace;color:#c8d0e0;overflow:hidden;}
+    /* Pages sit below ctx-bar(32) + nav(40) = 72px */
+    #pages-root{position:fixed;top:72px;left:0;right:0;bottom:0;overflow:hidden;}
+    .page-view{display:none;position:absolute;inset:0;overflow-y:auto;flex-direction:column;}
+    .page-view.active{display:flex;}
+    .page-view::-webkit-scrollbar{width:4px;}
+    .page-view::-webkit-scrollbar-thumb{background:#1e2a3a;}
+  </style>
+</head>
+<body>
+<!-- ctx-bar, main-nav, scan-panel injected by app-nav.js -->
+
+<div id="pages-root">
+
+  <!-- ══ FACILITY DATABASE ════════════════════════════════════ -->
+  <div id="page-facilities" class="page-view">
+    <div class="page-header">
+      <div class="page-header__title">FACILITY DATABASE</div>
+      <div class="page-header__sub" id="fdb-subtitle">Loading…</div>
+      <div class="page-header__actions">
+        <input class="fdb-filter-input" id="fdb-search" placeholder="Search name, category…" oninput="applyFdbFilters()">
+        <select class="fdb-filter-select" id="fdb-risk-filter" onchange="applyFdbFilters()">
+          <option value="">All Risk Levels</option>
+          <option value="critical">Critical</option>
+          <option value="hazardous">Hazardous</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <select class="fdb-filter-select" id="fdb-cat-filter" onchange="applyFdbFilters()">
+          <option value="">All Categories</option>
+          <option value="hospital">Hospital</option>
+          <option value="fire_station">Fire Station</option>
+          <option value="police">Police</option>
+          <option value="school">School</option>
+          <option value="power_plant">Power Plant</option>
+          <option value="substation">Substation</option>
+          <option value="chemical_plant">Chemical Plant</option>
+          <option value="petroleum">Petroleum</option>
+          <option value="water">Water Treatment</option>
+          <option value="waste">Waste Facility</option>
+          <option value="airport">Airport</option>
+          <option value="train_station">Train Station</option>
+          <option value="communication">Telecom</option>
+        </select>
+        <select class="fdb-filter-select" id="fdb-src-filter" onchange="applyFdbFilters()">
+          <option value="">All Sources</option>
+          <option value="overpass">OSM / Overpass</option>
+          <option value="google_places">Google Places</option>
+          <option value="import_geojson">Imported GeoJSON</option>
+          <option value="import_sql">Imported SQL</option>
+        </select>
+        <!-- Import / Export -->
+        <button class="app-btn app-btn--sm" onclick="document.getElementById('import-geojson-input').click()" title="Import GeoJSON file">⬆ GeoJSON</button>
+        <button class="app-btn app-btn--sm" onclick="document.getElementById('import-sql-input').click()" title="Import SQL dump">⬆ SQL</button>
+        <button class="app-btn app-btn--sm" onclick="exportFdbGeoJSON()" title="Export as GeoJSON">⬇ GeoJSON</button>
+        <button class="app-btn app-btn--sm" onclick="exportFdbSQL()" title="Export as SQL dump">⬇ SQL</button>
+        <span class="fdb-count" id="fdb-count">— facilities</span>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;padding:16px 24px 0;overflow:hidden;">
+      <div class="fdb-table-wrap" style="flex:1;overflow-y:auto;">
+        <table class="fdb-table" id="fdb-table">
+          <thead>
+            <tr>
+              <th onclick="sortFdb('id')">UUID <span class="sort-arrow" id="sort-id">↕</span></th>
+              <th onclick="sortFdb('name')">NAME <span class="sort-arrow" id="sort-name">↕</span></th>
+              <th onclick="sortFdb('category')">CATEGORY <span class="sort-arrow" id="sort-category">↕</span></th>
+              <th onclick="sortFdb('risk_level')">RISK <span class="sort-arrow" id="sort-risk_level">↕</span></th>
+              <th onclick="sortFdb('source')">SOURCE <span class="sort-arrow" id="sort-source">↕</span></th>
+              <th>COORDINATES</th>
+              <th onclick="sortFdb('updated_at')">UPDATED <span class="sort-arrow" id="sort-updated_at">↕</span></th>
+              <th>MAP</th>
+            </tr>
+          </thead>
+          <tbody id="fdb-tbody">
+            <tr><td colspan="8" class="fdb-empty">Loading facilities…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="fdb-pagination" id="fdb-pagination" style="padding:12px 0;"></div>
+    </div>
+    <!-- Import feedback -->
+    <div id="import-status" style="display:none;padding:8px 24px;font-size:11px;border-top:1px solid rgba(255,255,255,0.06);"></div>
+  </div>
+
+  <!-- ══ SETTINGS ═════════════════════════════════════════════ -->
+  <div id="page-settings" class="page-view">
+    <div class="page-header">
+      <div class="page-header__title">SETTINGS</div>
+      <div class="page-header__sub">Project configuration &amp; scan management</div>
+    </div>
+    <div class="page-body">
+      <div class="settings-grid">
+        <!-- Project Info -->
+        <div class="settings-card">
+          <div class="settings-card__head"><div class="settings-card__head-accent"></div>PROJECT IDENTITY</div>
+          <div class="settings-card__body">
+            <div class="settings-row"><span class="settings-label">NAME</span><span class="settings-value settings-value--readonly" id="s-name">—</span></div>
+            <div class="settings-row"><span class="settings-label">MODE</span><span class="settings-value settings-value--readonly" id="s-mode">—</span></div>
+            <div class="settings-row"><span class="settings-label">AREA</span><span class="settings-value settings-value--readonly" id="s-area">—</span></div>
+            <div class="settings-row"><span class="settings-label">CREATED</span><span class="settings-value settings-value--readonly" id="s-created">—</span></div>
+            <div class="settings-row"><span class="settings-label">ID</span><span class="settings-value settings-value--readonly" style="font-size:9px;word-break:break-all;" id="s-id">—</span></div>
+          </div>
+        </div>
+        <!-- Map settings -->
+        <div class="settings-card">
+          <div class="settings-card__head"><div class="settings-card__head-accent"></div>MAP SETTINGS</div>
+          <div class="settings-card__body">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <span class="settings-label">BASE TILE LAYER</span>
+              <select class="settings-select" id="s-map-layer">
+                <option value="osm-default">OpenStreetMap Default</option>
+                <option value="osm-dark">OpenStreetMap Dark</option>
+                <option value="osm-light">OpenStreetMap Light</option>
+                <option value="satellite">Satellite</option>
+                <option value="terrain">Terrain</option>
+              </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <span class="settings-label">UI THEME</span>
+              <select class="settings-select" id="s-theme">
+                <option value="default">Tactical Dark</option>
+                <option value="light">Light Mode</option>
+                <option value="green">Night Vision</option>
+                <option value="blue">Ocean Blue</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">BOUNDARY MASK</span>
+              <label style="display:flex;align-items:center;gap:6px;font-size:9px;color:var(--c-muted);cursor:pointer;">
+                <input type="checkbox" id="setting-boundary-mask" checked onchange="saveBoundaryMaskPref(this.checked)">
+                Gray overlay outside project area
+              </label>
+            </div>
+            <div class="settings-row" style="margin-top:4px;">
+              <span class="settings-label"></span>
+              <button class="app-btn app-btn--sm" onclick="applyMapSettings()">SAVE &amp; APPLY</button>
+            </div>
+          </div>
+        </div>
+        <!-- Hazard scale full-width -->
+        <div class="settings-card settings-card--scan" id="hazard-scale-card">
+          <div class="settings-card__head">
+            <div class="settings-card__head-accent"></div>HAZARD SCALE — FACILITY RISK GRADING
+          </div>
+          <div class="settings-card__body">
+            <div style="font-size:9px;color:var(--c-muted);letter-spacing:1px;margin-bottom:12px;line-height:1.6;">
+              Define the risk level for each facility type. Changes apply to all facilities in this project immediately.
+            </div>
+            <div id="hazard-scale-table" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;"></div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <button class="app-btn app-btn--primary" onclick="saveHazardScale()">SAVE SCALE →</button>
+              <button class="app-btn app-btn--sm" onclick="resetHazardScale()">RESET DEFAULTS</button>
+              <span id="hazard-scale-status" style="font-size:9px;color:var(--c-muted);letter-spacing:1px;"></span>
+            </div>
+          </div>
+        </div>
+        <!-- Scan settings full-width -->
+        <div class="settings-card settings-card--scan">
+          <div class="settings-card__head"><div class="settings-card__head-accent"></div>AREA SCAN — FACILITY DETECTION</div>
+          <div class="settings-card__body">
+            <div class="scan-status-grid">
+              <div class="scan-stat-card"><div class="scan-stat-card__label">LAST SCAN</div><div class="scan-stat-card__val" id="settings-last-scan">Never</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">NEXT ALLOWED</div><div class="scan-stat-card__val" id="settings-next-scan">—</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">CELLS SCANNED</div><div class="scan-stat-card__val" id="settings-scan-cells">—</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">FACILITIES FOUND</div><div class="scan-stat-card__val" id="settings-scan-found">—</div></div>
+            </div>
+            <!-- Grid preview -->
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
+              <div style="flex:1;min-width:220px;">
+                <div class="settings-label" style="margin-bottom:6px;">SCAN GRID PREVIEW (1 km² cells, batched ×4)</div>
+                <div class="grid-preview">
+                  <canvas id="grid-preview-canvas" width="400" height="170"></canvas>
+                  <div class="grid-preview__label" id="grid-preview-label">Click Compute Grid to preview</div>
+                </div>
+              </div>
+              <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:10px;">
+                <div class="settings-row"><span class="settings-label">CELL SIZE</span><span class="settings-value">1 km²</span></div>
+                <div class="settings-row"><span class="settings-label">BATCH SIZE</span><span class="settings-value">4 cells / request</span></div>
+                <div class="settings-row"><span class="settings-label">GRID CELLS</span><span class="settings-value" id="s-grid-cells">—</span></div>
+                <div class="settings-row"><span class="settings-label">BATCHES</span><span class="settings-value" id="s-batches">—</span></div>
+                <div class="settings-row"><span class="settings-label">EST. DURATION</span><span class="settings-value" id="s-est-dur">—</span></div>
+                <button class="app-btn app-btn--sm" onclick="previewGrid()">COMPUTE GRID</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="app-btn app-btn--primary" onclick="AEGIS_NAV.startScan(false)">↻ SCAN (24h limit)</button>
+              <button class="app-btn app-btn--danger"  onclick="AEGIS_NAV.startScan(true)">⚡ FORCE SCAN NOW</button>
+              <button class="app-btn app-btn--sm"      onclick="AEGIS_NAV.navTo('map')">VIEW ON MAP →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STUBS ═════════════════════════════════════════════════ -->
+  <div id="page-risk-inventory"   class="page-view"><div class="page-stub"><div class="page-stub__icon">⚠</div><div class="page-stub__title">RISK INVENTORY</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+  <div id="page-entities-network" class="page-view"><div class="page-stub"><div class="page-stub__icon">◈</div><div class="page-stub__title">ENTITIES NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+  <div id="page-risk-network"     class="page-view"><div class="page-stub"><div class="page-stub__icon">⬡</div><div class="page-stub__title">RISK NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+
+</div><!-- /pages-root -->
+
+<!-- Hidden file inputs for import -->
+<input type="file" id="import-geojson-input" accept=".geojson,.json" style="display:none" onchange="importGeoJSON(event)">
+<input type="file" id="import-sql-input"     accept=".sql,.txt"      style="display:none" onchange="importSQL(event)">
+
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+<script src="app-nav.js"></script>
+<script>
+// ── Preferences ────────────────────────────────────────────────
+const PREFS_KEY = 'aegis-workspace-prefs';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)||'{}'); } catch { return {}; } })();
+function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {} }
+
+// ── Themes (same set as map) ─────────────────────────────────
+const THEMES = {
+  default: { bg:'#050810', panel:'rgba(11,15,28,.94)', card:'#0e1220',
+    text:'#c8d0e0', muted:'#5a6378', dim:'#3a4155',
+    border:'rgba(255,255,255,0.08)', border2:'rgba(255,255,255,0.16)',
+    bodyBg:'#050810' },
+  light:   { bg:'#f0f4f8', panel:'rgba(255,255,255,.97)', card:'#e8eef5',
+    text:'#1e293b', muted:'#64748b', dim:'#94a3b8',
+    border:'rgba(0,0,0,0.12)', border2:'rgba(0,0,0,0.22)',
+    bodyBg:'#e2e8f0' },
+  green:   { bg:'#021002', panel:'rgba(6,24,6,.96)', card:'#041204',
+    text:'#00e600', muted:'#009900', dim:'#006600',
+    border:'rgba(0,200,0,0.15)', border2:'rgba(0,200,0,0.28)',
+    bodyBg:'#010801' },
+  blue:    { bg:'#020a14', panel:'rgba(6,18,32,.96)', card:'#071628',
+    text:'#bfdbfe', muted:'#60a5fa', dim:'#1d4ed8',
+    border:'rgba(59,130,246,0.18)', border2:'rgba(59,130,246,0.30)',
+    bodyBg:'#020a14' },
+};
+
+function applyThemeVars(name) {
+  const t = THEMES[name] || THEMES.default;
+  const r = document.documentElement;
+  r.style.setProperty('--c-bg',      t.bg);
+  r.style.setProperty('--c-panel',   t.panel);
+  r.style.setProperty('--c-card',    t.card);
+  r.style.setProperty('--c-text',    t.text);
+  r.style.setProperty('--c-muted',   t.muted);
+  r.style.setProperty('--c-dim',     t.dim);
+  r.style.setProperty('--c-border',  t.border);
+  r.style.setProperty('--c-border2', t.border2);
+  document.body.style.background = t.bodyBg;
+}
+
+// Apply theme on load
+applyThemeVars(prefs.theme || 'default');
+
+// Global axios credential flag
+axios.defaults.withCredentials = true;
+
+// ── Page routing ──────────────────────────────────────────────
+(function() {
+  const page = new URLSearchParams(window.location.search).get('page') || 'facilities';
+  const VALID = ['facilities','settings','risk-inventory','entities-network','risk-network'];
+  const target = VALID.includes(page) ? page : 'facilities';
+  document.getElementById('page-' + target)?.classList.add('active');
+  if (target === 'facilities') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(loadFacilitiesPage, 200));
+  }
+  if (target === 'settings') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(initSettingsPage, 200));
+  }
+})();
+
+// ══════════════════════════════════════════════════════════════
+// FACILITY DATABASE
+// ══════════════════════════════════════════════════════════════
+let fdbAll = [], fdbFiltered = [];
+let fdbSortKey = 'updated_at', fdbSortDir = -1;
+let fdbPage = 0;
+const FDB_PER_PAGE = 60;
+
+async function loadFacilitiesPage() {
+  const p = window.AEGIS_PROJECT;
+  if (!p && window.AEGIS_NAV?.projectId) {
+    // Project might not be loaded yet, wait
+    setTimeout(loadFacilitiesPage, 300); return;
+  }
+  if (!p) return;
+
+  const tbody = document.getElementById('fdb-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty">Loading…</td></tr>';
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/facilities');
+    fdbAll = r.data || [];
+    document.getElementById('fdb-subtitle').textContent = p.name + ' · ' + fdbAll.length + ' records';
+    applyFdbFilters();
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty">Error: ' + err.message + '</td></tr>';
+  }
+}
+
+function applyFdbFilters() {
+  const q   = (document.getElementById('fdb-search')?.value || '').toLowerCase();
+  const risk = document.getElementById('fdb-risk-filter')?.value || '';
+  const cat  = document.getElementById('fdb-cat-filter')?.value  || '';
+  const src  = document.getElementById('fdb-src-filter')?.value  || '';
+  fdbFiltered = fdbAll.filter(f => {
+    if (q    && !((f.name||'').toLowerCase().includes(q) || (f.category_name||'').toLowerCase().includes(q) || (f.category||'').toLowerCase().includes(q))) return false;
+    if (risk && f.risk_level !== risk) return false;
+    if (cat  && f.category  !== cat)  return false;
+    if (src  && (f.source||'') !== src) return false;
+    return true;
+  });
+  fdbPage = 0;
+  sortAndRenderFdb();
+}
+
+function sortFdb(key) {
+  if (fdbSortKey === key) fdbSortDir *= -1;
+  else { fdbSortKey = key; fdbSortDir = 1; }
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '↕');
+  const arr = document.getElementById('sort-' + key);
+  if (arr) arr.textContent = fdbSortDir === 1 ? '↑' : '↓';
+  sortAndRenderFdb();
+}
+
+function sortAndRenderFdb() {
+  const RO = { critical:0, hazardous:1, high:2, medium:3, low:4 };
+  fdbFiltered.sort((a, b) => {
+    let av = a[fdbSortKey] || '', bv = b[fdbSortKey] || '';
+    if (fdbSortKey === 'risk_level') { av = RO[av]??9; bv = RO[bv]??9; }
+    return av < bv ? -fdbSortDir : av > bv ? fdbSortDir : 0;
+  });
+  renderFdbPage();
+}
+
+function renderFdbPage() {
+  const cnt = document.getElementById('fdb-count');
+  if (cnt) cnt.textContent = fdbFiltered.length + ' facilities';
+
+  const rows = fdbFiltered.slice(fdbPage * FDB_PER_PAGE, (fdbPage + 1) * FDB_PER_PAGE);
+  const tbody = document.getElementById('fdb-tbody');
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty">No facilities match current filters.</td></tr>';
+    document.getElementById('fdb-pagination').innerHTML = '';
+    return;
+  }
+
+  const RL = { critical:'CRITICAL', hazardous:'HAZARDOUS', high:'HIGH', medium:'MEDIUM', low:'LOW' };
+  tbody.innerHTML = rows.map(f => {
+    const risk = f.risk_level || 'low';
+    const lat = parseFloat(f.latitude  || 0).toFixed(5);
+    const lng = parseFloat(f.longitude || 0).toFixed(5);
+    const upd = f.updated_at ? new Date(f.updated_at).toLocaleDateString() : '—';
+    const src = (f.source || '').replace(/_/g,' ').toUpperCase() || '—';
+    return `<tr>
+      <td><span class="fdb-uuid" title="${h(f.id)}">${h((f.id||'').slice(0,14).toUpperCase())}</span></td>
+      <td title="${h(f.name)}">${h(f.name||'—')}</td>
+      <td>${h(f.category_name || f.category || '—')}</td>
+      <td><span class="risk-pill risk-pill--${risk}">${RL[risk]||risk.toUpperCase()}</span></td>
+      <td style="font-size:9px;">${h(src)}</td>
+      <td style="font-size:9px;color:#5a6378;">${lat} / ${lng}</td>
+      <td style="font-size:9px;color:#5a6378;">${upd}</td>
+      <td><button class="fdb-action-btn" onclick="locateOnMap(${f.latitude},${f.longitude})">MAP</button></td>
+    </tr>`;
+  }).join('');
+
+  renderFdbPagination();
+}
+
+function renderFdbPagination() {
+  const total = Math.ceil(fdbFiltered.length / FDB_PER_PAGE);
+  const el = document.getElementById('fdb-pagination');
+  if (!el || total <= 1) { if(el) el.innerHTML=''; return; }
+
+  let html = `<button class="fdb-page-btn" onclick="fdbGo(${fdbPage-1})" ${fdbPage===0?'disabled':''}>← PREV</button>`;
+  for (let i = 0; i < total; i++) {
+    if (total > 8 && Math.abs(i - fdbPage) > 2 && i !== 0 && i !== total-1) {
+      if (i === 1 || i === total-2) html += '<span style="color:#3a4155;padding:0 4px">…</span>';
+      continue;
+    }
+    html += `<button class="fdb-page-btn${i===fdbPage?' active':''}" onclick="fdbGo(${i})">${i+1}</button>`;
+  }
+  html += `<button class="fdb-page-btn" onclick="fdbGo(${fdbPage+1})" ${fdbPage>=total-1?'disabled':''}>NEXT →</button>`;
+  el.innerHTML = html;
+}
+
+function fdbGo(p) {
+  const total = Math.ceil(fdbFiltered.length / FDB_PER_PAGE);
+  fdbPage = Math.max(0, Math.min(p, total-1));
+  renderFdbPage();
+}
+
+function locateOnMap(lat, lng) {
+  window.location.href = window.AEGIS_NAV.mapUrl() + '&lat=' + lat + '&lng=' + lng + '&zoom=16';
+}
+
+// ── GeoJSON Export ────────────────────────────────────────────
+function exportFdbGeoJSON() {
+  const features = fdbFiltered.map(f => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [parseFloat(f.longitude), parseFloat(f.latitude)] },
+    properties: { id:f.id, name:f.name, category:f.category, risk_level:f.risk_level, source:f.source }
+  }));
+  download(
+    JSON.stringify({ type:'FeatureCollection', features }, null, 2),
+    'facilities_' + (window.AEGIS_PROJECT?.name||'export').replace(/\s/g,'_') + '_' + date() + '.geojson',
+    'application/json'
+  );
+}
+
+// ── SQL Export (via server) ───────────────────────────────────
+async function exportFdbSQL() {
+  const p = window.AEGIS_PROJECT;
+  if (!p) return;
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/facilities/export/sql', { responseType: 'blob' });
+    const url = URL.createObjectURL(r.data);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'facilities_' + date() + '.sql'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) { alert('SQL export failed: ' + err.message); }
+}
+
+// ── GeoJSON Import ────────────────────────────────────────────
+async function importGeoJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  showImportStatus('loading', 'Parsing ' + file.name + '…');
+  try {
+    const text = await file.text();
+    const geojson = JSON.parse(text);
+    const r = await axios.post(
+      window.AEGIS_API + '/api/projects/' + window.AEGIS_PROJECT.id + '/facilities/import/geojson',
+      { geojson },
+      { timeout: 60000 }
+    );
+    showImportStatus('ok', '✓ Imported ' + r.data.imported + ' facilities from GeoJSON');
+    await loadFacilitiesPage();
+  } catch (err) {
+    showImportStatus('error', '✗ ' + (err.response?.data?.error || err.message));
+  }
+}
+
+// ── SQL Import ────────────────────────────────────────────────
+async function importSQL(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  showImportStatus('loading', 'Parsing ' + file.name + '…');
+  try {
+    const sql = await file.text();
+    const r = await axios.post(
+      window.AEGIS_API + '/api/projects/' + window.AEGIS_PROJECT.id + '/facilities/import/sql',
+      { sql },
+      { timeout: 60000 }
+    );
+    showImportStatus('ok', '✓ Imported ' + r.data.imported + ' facilities from SQL');
+    await loadFacilitiesPage();
+  } catch (err) {
+    showImportStatus('error', '✗ ' + (err.response?.data?.error || err.message));
+  }
+}
+
+function showImportStatus(type, msg) {
+  const el = document.getElementById('import-status');
+  if (!el) return;
+  el.style.display = '';
+  el.style.color = type==='ok' ? '#22c55e' : type==='error' ? '#ef4444' : '#f59e0b';
+  el.textContent = msg;
+  if (type !== 'loading') setTimeout(() => el.style.display='none', 4000);
+}
+
+// ══════════════════════════════════════════════════════════════
+// SETTINGS PAGE
+// ══════════════════════════════════════════════════════════════
+async function initSettingsPage() {
+  const waitForP = setInterval(() => {
+    if (!window.AEGIS_PROJECT) return;
+    clearInterval(waitForP);
+    fillSettingsPage(window.AEGIS_PROJECT);
+    loadHazardScale();
+  }, 100);
+}
+
+function fillSettingsPage(p) {
+  document.getElementById('s-name').textContent    = p.name || '—';
+  document.getElementById('s-mode').textContent    = (p.mode||'—').toUpperCase().replace('_',' ');
+  document.getElementById('s-area').textContent    = p.area_name || '—';
+  document.getElementById('s-created').textContent = p.created_at ? new Date(p.created_at).toLocaleString() : '—';
+  document.getElementById('s-id').textContent      = p.id || '—';
+
+  const last = p.last_scan;
+  document.getElementById('settings-last-scan').textContent  = last ? new Date(last).toLocaleString() : 'Never';
+  document.getElementById('settings-next-scan').textContent  = last ? new Date(new Date(last).getTime()+86400000).toLocaleString() : '—';
+  document.getElementById('settings-scan-cells').textContent = p.last_scan_cells || '—';
+  document.getElementById('settings-scan-found').textContent = p.last_scan_facilities_found || '—';
+
+  // Restore saved prefs into the selects
+  const themeEl = document.getElementById('s-theme');
+  const layerEl = document.getElementById('s-map-layer');
+  const maskEl  = document.getElementById('setting-boundary-mask');
+  if (themeEl) themeEl.value = prefs.theme || 'default';
+  if (layerEl) layerEl.value = prefs.layer || 'osm-default';
+  if (maskEl)  maskEl.checked = prefs.boundaryMask !== false;
+}
+
+function saveBoundaryMaskPref(val) {
+  prefs.boundaryMask = val;
+  savePrefs();
+}
+
+// ── Hazard Scale ──────────────────────────────────────────────
+const FAC_TYPES = [
+  { id:'hospital',       label:'Hospital' },
+  { id:'clinic',         label:'Clinic' },
+  { id:'fire_station',   label:'Fire Station' },
+  { id:'police',         label:'Police Station' },
+  { id:'school',         label:'School' },
+  { id:'gymnasium',      label:'Gymnasium / Shelter' },
+  { id:'shelter',        label:'Shelter' },
+  { id:'power_plant',    label:'Power Plant' },
+  { id:'substation',     label:'Power Substation' },
+  { id:'chemical_plant', label:'Chemical Plant' },
+  { id:'petroleum',      label:'Petroleum Facility' },
+  { id:'water',          label:'Water Treatment' },
+  { id:'waste',          label:'Waste Facility' },
+  { id:'airport',        label:'Airport' },
+  { id:'train_station',  label:'Train Station' },
+  { id:'communication',  label:'Telecom / Communication' },
+  { id:'military',       label:'Military Installation' },
+  { id:'storage_tank',   label:'Storage Tank' },
+];
+
+const RISK_LEVELS = ['critical','hazardous','high','medium','low'];
+const RISK_COLORS = { critical:'#f87171', hazardous:'#fb923c', high:'#fbbf24', medium:'#60a5fa', low:'#4ade80' };
+
+let _currentHazardScale = {};
+
+async function loadHazardScale() {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/hazard-scale');
+    _currentHazardScale = r.data.scale || {};
+    renderHazardScaleTable(_currentHazardScale);
+  } catch { renderHazardScaleTable({}); }
+}
+
+function renderHazardScaleTable(scale) {
+  const el = document.getElementById('hazard-scale-table');
+  if (!el) return;
+  el.innerHTML = FAC_TYPES.map(ft => {
+    const current = scale[ft.id] || 'medium';
+    const opts = RISK_LEVELS.map(rl => {
+      const col = RISK_COLORS[rl];
+      const sel = rl === current ? `selected style="background:${col}22;color:${col};font-weight:700;"` : '';
+      return `<option value="${rl}" ${sel}>${rl.toUpperCase()}</option>`;
+    }).join('');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
+      background:var(--c-bg);border:1px solid var(--c-border);">
+      <span style="font-size:9px;letter-spacing:1px;color:var(--c-muted);flex:1;">${h(ft.label)}</span>
+      <select id="hs-${ft.id}" class="settings-select"
+        style="width:auto;padding:3px 6px;font-size:9px;color:${RISK_COLORS[current]};
+          border-color:${RISK_COLORS[current]}44;"
+        onchange="onRiskSelectChange(this,'${ft.id}')">
+        ${opts}
+      </select>
+    </div>`;
+  }).join('');
+}
+
+function onRiskSelectChange(sel, id) {
+  const rl = sel.value;
+  sel.style.color = RISK_COLORS[rl] || '#c8d0e0';
+  sel.style.borderColor = (RISK_COLORS[rl] || '#888') + '44';
+}
+
+async function saveHazardScale() {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  const scale = {};
+  FAC_TYPES.forEach(ft => {
+    const sel = document.getElementById('hs-' + ft.id);
+    if (sel) scale[ft.id] = sel.value;
+  });
+  const statusEl = document.getElementById('hazard-scale-status');
+  statusEl.textContent = 'Saving…';
+  try {
+    await axios.put(window.AEGIS_API + '/api/projects/' + p.id + '/hazard-scale', { scale });
+    _currentHazardScale = scale;
+    statusEl.style.color = 'var(--c-green,#22c55e)';
+    statusEl.textContent = '✓ Scale saved — all facilities updated';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  } catch (err) {
+    statusEl.style.color = '#f87171';
+    statusEl.textContent = '✗ ' + (err.response?.data?.error || err.message);
+  }
+}
+
+function resetHazardScale() {
+  if (!confirm('Reset to default risk levels?')) return;
+  renderHazardScaleTable({});
+}
+
+function previewGrid() {
+  const p = window.AEGIS_PROJECT;
+  if (!p?.area?.geojson) { alert('No area defined.'); return; }
+  // Call server to get grid preview (reuse scan status endpoint's cell list if available)
+  axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/scan/preview')
+    .then(r => {
+      const cells = r.data.cells || [];
+      const batches = r.data.batches || 0;
+      const estSecs = Math.ceil(batches * 3.5);
+      document.getElementById('s-grid-cells').textContent = cells.length + ' cells';
+      document.getElementById('s-batches').textContent    = batches + ' batches';
+      document.getElementById('s-est-dur').textContent    = Math.floor(estSecs/60) + 'm ' + (estSecs%60) + 's';
+      document.getElementById('grid-preview-label').textContent = cells.length + ' cells · ' + batches + ' batches';
+      drawGridPreview(cells, p.area.geojson);
+    })
+    .catch(err => alert('Preview error: ' + err.message));
+}
+
+function drawGridPreview(cells, geojson) {
+  const canvas = document.getElementById('grid-preview-canvas');
+  if (!canvas || !cells.length) return;
+  const ctx = canvas.getContext('2d');
+
+  // Compute geographic bounding box
+  let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+  cells.forEach(c=>{minLat=Math.min(minLat,c.south);maxLat=Math.max(maxLat,c.north);minLng=Math.min(minLng,c.west);maxLng=Math.max(maxLng,c.east);});
+
+  // Correct aspect ratio for latitude distortion
+  const cLat = (minLat+maxLat)/2;
+  const widthKm  = (maxLng-minLng) * 111.32 * Math.cos(cLat*Math.PI/180);
+  const heightKm = (maxLat-minLat) * 111.32;
+  const aspect   = widthKm / Math.max(heightKm, 0.001);
+
+  // Fit canvas inside container while preserving aspect ratio
+  const container  = canvas.parentElement;
+  const maxW = Math.max(container.clientWidth - 4, 100);
+  const maxH = 260;
+  let canvasW = maxW, canvasH = Math.round(maxW / aspect);
+  if (canvasH > maxH) { canvasH = maxH; canvasW = Math.round(maxH * aspect); }
+  canvasW = Math.min(canvasW, maxW);
+  canvas.width  = canvasW;
+  canvas.height = canvasH;
+  canvas.style.display = 'block';
+  canvas.style.margin  = '0 auto';
+
+  const pad=6;
+  const toX = lng => pad + (lng-minLng)/(maxLng-minLng)*(canvasW-pad*2);
+  const toY = lat => pad + (maxLat-lat)/(maxLat-minLat)*(canvasH-pad*2);
+
+  ctx.clearRect(0,0,canvasW,canvasH);
+  ctx.fillStyle='#050810'; ctx.fillRect(0,0,canvasW,canvasH);
+
+  // Polygon outline
+  ctx.strokeStyle='rgba(245,158,11,0.6)'; ctx.lineWidth=1.2;
+  (geojson.features||[]).forEach(f=>{
+    const g=f.geometry; if(!g) return;
+    const rings=g.type==='Polygon'?g.coordinates:g.type==='MultiPolygon'?g.coordinates.map(p=>p[0]):[];
+    rings.forEach(ring=>{
+      ctx.beginPath(); ring.forEach(([lng,lat],i)=>i===0?ctx.moveTo(toX(lng),toY(lat)):ctx.lineTo(toX(lng),toY(lat)));
+      ctx.closePath(); ctx.stroke();
+    });
+  });
+
+  // Grid cells
+  ctx.fillStyle='rgba(245,158,11,0.05)'; ctx.strokeStyle='rgba(58,65,85,0.55)'; ctx.lineWidth=0.4;
+  cells.forEach(c=>{
+    const x=toX(c.west),y=toY(c.north),w=Math.max(toX(c.east)-x,0.5),hh=Math.max(toY(c.south)-y,0.5);
+    ctx.fillRect(x,y,w,hh); ctx.strokeRect(x,y,w,hh);
+  });
+}
+
+function applyMapSettings() {
+  const theme = document.getElementById('s-theme')?.value || 'default';
+  const layer = document.getElementById('s-map-layer')?.value || 'osm-default';
+
+  // Save to shared prefs — map page reads this on next load
+  const stored = (() => { try { return JSON.parse(localStorage.getItem('aegis-workspace-prefs')||'{}'); } catch { return {}; } })();
+  stored.theme = theme;
+  stored.layer = layer;
+  localStorage.setItem('aegis-workspace-prefs', JSON.stringify(stored));
+
+  // Apply theme to current pages too
+  applyThemeVars(theme);
+
+  // Visual confirmation
+  const btn = event?.target;
+  if (btn) { const orig = btn.textContent; btn.textContent = '✓ SAVED'; setTimeout(() => btn.textContent = orig, 1500); }
+}
+
+// ── Shared utils ──────────────────────────────────────────────
+function h(s) { const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function date() { return new Date().toISOString().slice(0,10); }
+function download(content, filename, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+  a.download = filename; a.click();
+}
+</script>
+</body>
+</html>

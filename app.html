@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS V3 — Loading…</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="stylesheet" href="style-app.css"/>
+  <style>
+    /* ── Context bar ── */
+    #project-context-bar {
+      position:fixed;top:0;left:0;right:0;z-index:9999;height:32px;
+      display:flex;align-items:center;justify-content:space-between;
+      padding:0 16px;background:rgba(5,8,16,.97);
+      border-bottom:1px solid rgba(255,255,255,0.10);
+      font-family:'Roboto Mono',monospace;font-size:10px;color:#5a6378;
+      letter-spacing:1px;
+    }
+    #project-context-bar .ctx-left{display:flex;align-items:center;gap:10px;}
+    #project-context-bar .ctx-name{color:#c8d0e0;font-weight:700;letter-spacing:2px;}
+    #project-context-bar .ctx-mode{font-size:8px;padding:2px 5px;border:1px solid;letter-spacing:2px;}
+    #project-context-bar .ctx-mode--sim{color:#f59e0b;border-color:#f59e0b;}
+    #project-context-bar .ctx-mode--ra {color:#ef4444;border-color:#ef4444;}
+    #project-context-bar .ctx-area{color:#3a4155;}
+    #project-context-bar .ctx-back{
+      background:none;border:1px solid rgba(255,255,255,0.08);
+      color:#5a6378;font-family:'Roboto Mono',monospace;
+      font-size:9px;letter-spacing:1px;padding:3px 10px;cursor:pointer;
+    }
+    #project-context-bar .ctx-back:hover{color:#c8d0e0;border-color:rgba(255,255,255,0.18);}
+    /* ── Loading overlay ── */
+    #app-loader{
+      position:fixed;inset:0;z-index:99999;background:#050810;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+      font-family:'Roboto Mono',monospace;
+    }
+    #app-loader .l-title{font-size:28px;font-weight:700;letter-spacing:8px;color:#fff;}
+    #app-loader .l-sub{font-size:10px;letter-spacing:3px;color:#5a6378;}
+    #app-loader .l-bar-wrap{width:240px;height:2px;background:rgba(255,255,255,0.06);}
+    #app-loader .l-bar{height:2px;background:#f59e0b;width:0;transition:width .4s ease;}
+    #app-loader .l-status{font-size:9px;color:#3a4155;letter-spacing:2px;margin-top:4px;}
+  </style>
+</head>
+<body class="tactical-bg">
+
+<!-- ══ Loading overlay ════════════════════════════════════════ -->
+<div id="app-loader">
+  <div class="l-title">AEGIS</div>
+  <div class="l-sub">INITIALIZING PROJECT</div>
+  <div class="l-bar-wrap"><div class="l-bar" id="loader-bar"></div></div>
+  <div class="l-status" id="loader-status">LOADING PROJECT DATA…</div>
+</div>
+
+<!-- ══ Project context bar ════════════════════════════════════ -->
+<div id="project-context-bar" style="display:none;">
+  <div class="ctx-left">
+    <span class="ctx-mode" id="ctx-mode-badge">---</span>
+    <span class="ctx-name" id="ctx-project-name">---</span>
+    <span>·</span>
+    <span class="ctx-area" id="ctx-area-name">---</span>
+  </div>
+  <div>
+    <button class="ctx-back" onclick="window.location.href='index.html'">← HOME</button>
+  </div>
+</div>
+
+<!-- ══ Main navigation bar ════════════════════════════════════ -->
+<nav id="main-nav" style="display:none;">
+  <button class="nav-btn nav-btn--active" data-page="map" onclick="switchPage('map')">
+    <span class="nav-icon">◉</span> MAP
+  </button>
+  <button class="nav-btn" data-page="facilities" onclick="switchPage('facilities')">
+    <span class="nav-icon">⬡</span> FACILITY DATABASE
+  </button>
+  <button class="nav-btn nav-btn--disabled nav-btn--stub" data-page="risk-inventory" title="Coming soon">
+    <span class="nav-icon">⚠</span> RISK INVENTORY
+  </button>
+  <button class="nav-btn nav-btn--disabled nav-btn--stub" data-page="entities-network" title="Coming soon">
+    <span class="nav-icon">◈</span> ENTITIES NETWORK
+  </button>
+  <button class="nav-btn nav-btn--disabled nav-btn--stub" data-page="risk-network" title="Coming soon">
+    <span class="nav-icon">⬡</span> RISK NETWORK
+  </button>
+  <button class="nav-btn" data-page="settings" onclick="switchPage('settings')">
+    <span class="nav-icon">⚙</span> SETTINGS
+  </button>
+
+  <!-- Scan activity indicator -->
+  <div id="nav-scan-indicator">
+    <div class="pulse-dot"></div>
+    <span>SCAN RUNNING</span>
+    <span id="nav-scan-pct">0%</span>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════
+     MAP PAGE — map always rendered behind everything
+══════════════════════════════════════════════════════════════ -->
+<div id="map" class="map-container"></div>
+<div id="grid-overlay" class="tactical-grid"></div>
+
+<!-- Map UI overlay — shown only on map page -->
+<div id="ui-layer" class="ui-overlay">
+  <div class="top-bar">
+    <div class="ui-panel top-left interactive-ui">
+      <h1 class="ui-title" id="app-title">AEGIS_V3</h1>
+      <div class="system-status">
+        <span class="status-indicator checking"></span>
+        <span id="project-mode-label">---</span>
+        <span class="separator">|</span>
+        <span id="clock">00:00:00</span>
+      </div>
+    </div>
+    <div class="ui-panel top-right interactive-ui">
+      <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Search location…" class="control-input search-input">
+        <button id="searchBtn" class="ui-btn search-btn">Search</button>
+      </div>
+      <button onclick="toggleGrid()" class="ui-btn">Toggle Grid</button>
+      <button id="detectFacilitiesBtn" onclick="startFacilityScan(true)" class="ui-btn critical">⟳ Force Scan</button>
+      <button id="btn-scan-now" onclick="startFacilityScan(false)" class="ui-btn">Scan Area</button>
+      <button id="geolocateBtn" class="ui-btn">Locate Me</button>
+    </div>
+  </div>
+
+  <div class="left-sidebar">
+    <div class="sidebar-content">
+      <div class="control-section critical-section">
+        <h3>CRITICAL FACILITIES</h3>
+        <div id="facilityStats" class="facility-stats"></div>
+        <details class="filter-details">
+          <summary>FILTER: Category</summary>
+          <div class="filter-content">
+            <label><input type="checkbox" name="facility-category" value="hospital"       onchange="applyFacilityFilters()"> Hospital</label>
+            <label><input type="checkbox" name="facility-category" value="fire_station"   onchange="applyFacilityFilters()"> Fire Station</label>
+            <label><input type="checkbox" name="facility-category" value="police"         onchange="applyFacilityFilters()"> Police</label>
+            <label><input type="checkbox" name="facility-category" value="school"         onchange="applyFacilityFilters()"> School</label>
+            <label><input type="checkbox" name="facility-category" value="power_plant"    onchange="applyFacilityFilters()"> Power Plant</label>
+            <label><input type="checkbox" name="facility-category" value="chemical_plant" onchange="applyFacilityFilters()"> Chemical Plant</label>
+            <label><input type="checkbox" name="facility-category" value="water_treatment"onchange="applyFacilityFilters()"> Water Treatment</label>
+            <label><input type="checkbox" name="facility-category" value="waste"          onchange="applyFacilityFilters()"> Waste Facility</label>
+            <label><input type="checkbox" name="facility-category" value="airport"        onchange="applyFacilityFilters()"> Airport</label>
+            <button class="ui-btn select-all" onclick="selectAllCategories()">Select All</button>
+          </div>
+        </details>
+        <details class="filter-details">
+          <summary>FILTER: Risk Level</summary>
+          <div class="filter-content">
+            <label><input type="checkbox" name="facility-risk" value="critical"  checked onchange="applyFacilityFilters()"> <span class="risk-badge critical">CRITICAL</span></label>
+            <label><input type="checkbox" name="facility-risk" value="hazardous" checked onchange="applyFacilityFilters()"> <span class="risk-badge hazardous">HAZARDOUS</span></label>
+            <label><input type="checkbox" name="facility-risk" value="high"      checked onchange="applyFacilityFilters()"> <span class="risk-badge high">HIGH</span></label>
+            <label><input type="checkbox" name="facility-risk" value="medium"    checked onchange="applyFacilityFilters()"> <span class="risk-badge medium">MEDIUM</span></label>
+            <label><input type="checkbox" name="facility-risk" value="low"       checked onchange="applyFacilityFilters()"> <span class="risk-badge low">LOW</span></label>
+          </div>
+        </details>
+        <button class="ui-btn" onclick="showRiskAnalysisReport()">Risk Analysis Report</button>
+        <button class="ui-btn" onclick="exportFacilitiesAsGeoJSON()">Export GeoJSON</button>
+      </div>
+      <div class="control-section">
+        <h3>MARKERS &amp; DATA</h3>
+        <input type="text" id="markerName" placeholder="Marker name" class="control-input">
+        <textarea id="markerDescription" placeholder="Description" class="control-input marker-desc"></textarea>
+        <select id="iconSelector" class="control-input" title="Select marker icon"><option value="default">Default</option></select>
+        <button id="confirmMarkerBtn" class="ui-btn">Ready to Place</button>
+        <button id="saveDataBtn" class="ui-btn">Save Markers</button>
+        <button id="loadDataBtn" class="ui-btn">Load Markers</button>
+      </div>
+      <div class="control-section">
+        <h3>DRAW TOOLS</h3>
+        <button id="drawCircleBtn"    class="ui-btn draw-btn">Circle</button>
+        <button id="drawRectangleBtn" class="ui-btn draw-btn">Rectangle</button>
+        <button id="drawPolygonBtn"   class="ui-btn draw-btn">Polygon</button>
+        <button id="finishShapeBtn"   class="ui-btn success">Finish</button>
+        <button id="cancelShapeBtn"   class="ui-btn">Cancel</button>
+        <button id="clearShapesBtn"   class="ui-btn clear-btn">Clear Shapes</button>
+      </div>
+      <div class="control-section mi-fallout-section">
+        <h3>FACILITY DATABASE</h3>
+        <div id="panelFacilities" class="facilities-panel"></div>
+        <div id="facilityDetailPanel" class="facility-detail-panel"></div>
+      </div>
+      <div class="control-section">
+        <h3>MAP SETTINGS</h3>
+        <label class="control-label">Base Layer</label>
+        <select id="mapLayerSelector" class="control-input" title="Select map base layer">
+          <option value="osm-default">OpenStreetMap Default</option>
+          <option value="osm-dark">OpenStreetMap Dark</option>
+          <option value="satellite">Satellite</option>
+          <option value="terrain">Terrain</option>
+        </select>
+        <label class="control-label">UI Theme</label>
+        <select id="themeSelector" class="control-input" title="Select UI theme">
+          <option value="default">Tactical Dark</option>
+          <option value="light">Light Mode</option>
+          <option value="green">Night Vision</option>
+          <option value="blue">Ocean Blue</option>
+        </select>
+      </div>
+      <div class="control-section">
+        <h3>TIF OVERLAYS</h3>
+        <button class="ui-btn" onclick="document.getElementById('tifFileInput').click()">Upload TIF</button>
+        <div id="tifLayersList" class="tif-layers-list"></div>
+      </div>
+    </div>
+    <div class="sidebar-resize-handle" data-target="left"></div>
+  </div>
+
+  <div class="bottom-bar">
+    <div class="ui-panel">
+      <div class="data-block">
+        <div class="data-item">
+          <span class="data-label">CURSOR</span>
+          <span id="coordinates" class="data-value">NO_DATA</span>
+        </div>
+        <div class="data-item">
+          <span class="data-label">ZOOM</span>
+          <span id="zoom-level" class="data-value">Z: 2</span>
+        </div>
+        <div class="data-item">
+          <span class="data-label">TARGETS</span>
+          <span id="target-count" class="data-value">0</span>
+        </div>
+        <div class="data-item">
+          <span class="data-label">PROJECT</span>
+          <span id="bottom-project-id" class="data-value" style="font-size:8px;color:#3a4155;">---</span>
+        </div>
+        <div class="data-item">
+          <span class="data-label">FACILITIES</span>
+          <span id="bottom-facility-count" class="data-value">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="scan-line" class="scan-line"></div>
+
+<div class="markers-panel">
+  <div class="sidebar-resize-handle" data-target="right"></div>
+  <h3>MARKERS LIST</h3>
+  <div id="markerList" class="marker-list"></div>
+  <button id="clearAllBtn" class="ui-btn clear-btn">Clear All</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SCAN PROGRESS PANEL (floating, z-index: 10000)
+══════════════════════════════════════════════════════════════ -->
+<div id="scan-panel">
+  <div class="scan-panel__head">
+    <span class="scan-panel__head-title">AREA SCAN</span>
+    <div class="scan-panel__head-right">
+      <span class="scan-phase scan-phase--start" id="scan-phase">IDLE</span>
+      <span id="scan-eta" style="font-size:9px;color:#5a6378;letter-spacing:1px;">—</span>
+      <button class="scan-panel__close" onclick="document.getElementById('scan-panel').style.display='none'">✕</button>
+    </div>
+  </div>
+  <div class="scan-bar-wrap">
+    <div id="scan-bar-fill"></div>
+  </div>
+  <div class="scan-stats">
+    <div class="scan-stat">
+      <div class="scan-stat__label">CELLS</div>
+      <div class="scan-stat__val" id="scan-counter">0/0</div>
+    </div>
+    <div class="scan-stat">
+      <div class="scan-stat__label">FOUND</div>
+      <div class="scan-stat__val" id="scan-found">0</div>
+    </div>
+    <div class="scan-stat">
+      <div class="scan-stat__label">ELAPSED</div>
+      <div class="scan-stat__val" id="scan-elapsed">0s</div>
+    </div>
+  </div>
+  <div class="scan-coords" id="scan-cell-coords">—</div>
+  <div id="scan-log"></div>
+  <div class="scan-panel__foot">
+    <button class="app-btn app-btn--danger app-btn--sm" onclick="abortScan()">ABORT SCAN</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     FACILITY DATABASE PAGE
+══════════════════════════════════════════════════════════════ -->
+<div id="page-facilities" class="page-overlay">
+  <div class="page-header">
+    <div class="page-header__title">FACILITY DATABASE</div>
+    <div class="page-header__sub" id="fdb-subtitle">Project facilities index</div>
+    <div class="page-header__actions">
+      <input class="fdb-filter-input" id="fdb-search" placeholder="Search name, category…" oninput="applyFdbFilters()">
+      <select class="fdb-filter-select" id="fdb-risk-filter" onchange="applyFdbFilters()">
+        <option value="">All Risk Levels</option>
+        <option value="critical">Critical</option>
+        <option value="hazardous">Hazardous</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select class="fdb-filter-select" id="fdb-cat-filter" onchange="applyFdbFilters()">
+        <option value="">All Categories</option>
+        <option value="hospital">Hospital</option>
+        <option value="fire_station">Fire Station</option>
+        <option value="police">Police</option>
+        <option value="school">School</option>
+        <option value="power_plant">Power Plant</option>
+        <option value="substation">Substation</option>
+        <option value="chemical_plant">Chemical Plant</option>
+        <option value="petroleum">Petroleum</option>
+        <option value="water">Water Treatment</option>
+        <option value="waste">Waste Facility</option>
+        <option value="airport">Airport</option>
+        <option value="train_station">Train Station</option>
+        <option value="communication">Telecom</option>
+      </select>
+      <select class="fdb-filter-select" id="fdb-source-filter" onchange="applyFdbFilters()">
+        <option value="">All Sources</option>
+        <option value="overpass">OSM / Overpass</option>
+        <option value="google_places">Google Places</option>
+      </select>
+      <button class="app-btn app-btn--sm" onclick="exportFdbGeoJSON()">⬇ GeoJSON</button>
+      <span class="fdb-count" id="fdb-count">— facilities</span>
+    </div>
+  </div>
+  <div class="page-body" style="display:flex;flex-direction:column;padding-bottom:0;">
+    <div class="fdb-table-wrap">
+      <table class="fdb-table" id="fdb-table">
+        <thead>
+          <tr>
+            <th onclick="sortFdb('id')" title="Sort by ID">UUID <span class="sort-arrow" id="sort-id">↕</span></th>
+            <th onclick="sortFdb('name')" title="Sort by name">NAME <span class="sort-arrow" id="sort-name">↕</span></th>
+            <th onclick="sortFdb('category')" title="Sort by category">CATEGORY <span class="sort-arrow" id="sort-category">↕</span></th>
+            <th onclick="sortFdb('risk_level')" title="Sort by risk">RISK <span class="sort-arrow" id="sort-risk_level">↕</span></th>
+            <th onclick="sortFdb('source')" title="Sort by source">SOURCE <span class="sort-arrow" id="sort-source">↕</span></th>
+            <th>COORDINATES</th>
+            <th onclick="sortFdb('updated_at')" title="Sort by date">LAST UPDATED <span class="sort-arrow" id="sort-updated_at">↕</span></th>
+            <th>ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="fdb-tbody">
+          <tr><td colspan="8" class="fdb-empty">Loading facilities…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="fdb-pagination" id="fdb-pagination"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SETTINGS PAGE
+══════════════════════════════════════════════════════════════ -->
+<div id="page-settings" class="page-overlay">
+  <div class="page-header">
+    <div class="page-header__title">SETTINGS</div>
+    <div class="page-header__sub">Project configuration &amp; scan management</div>
+  </div>
+  <div class="page-body">
+    <div class="settings-grid">
+
+      <!-- Project Info -->
+      <div class="settings-card">
+        <div class="settings-card__head">
+          <div class="settings-card__head-accent"></div>
+          PROJECT IDENTITY
+        </div>
+        <div class="settings-card__body">
+          <div class="settings-row">
+            <span class="settings-label">NAME</span>
+            <span class="settings-value settings-value--readonly" id="s-name">—</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">MODE</span>
+            <span class="settings-value settings-value--readonly" id="s-mode">—</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">AREA</span>
+            <span class="settings-value settings-value--readonly" id="s-area">—</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">CREATED</span>
+            <span class="settings-value settings-value--readonly" id="s-created">—</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">PROJECT ID</span>
+            <span class="settings-value settings-value--readonly" style="font-size:9px;word-break:break-all;" id="s-id">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map Settings -->
+      <div class="settings-card">
+        <div class="settings-card__head">
+          <div class="settings-card__head-accent"></div>
+          MAP SETTINGS
+        </div>
+        <div class="settings-card__body">
+          <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+            <span class="settings-label">BASE TILE LAYER</span>
+            <select class="settings-select" onchange="changeMapLayer(this.value)" id="s-map-layer">
+              <option value="osm-default">OpenStreetMap Default</option>
+              <option value="osm-dark">OpenStreetMap Dark</option>
+              <option value="satellite">Satellite</option>
+              <option value="terrain">Terrain</option>
+            </select>
+          </div>
+          <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;">
+            <span class="settings-label">UI THEME</span>
+            <select class="settings-select" onchange="changeTheme(this.value)" id="s-theme">
+              <option value="default">Tactical Dark</option>
+              <option value="light">Light Mode</option>
+              <option value="green">Night Vision</option>
+              <option value="blue">Ocean Blue</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">GRID OVERLAY</span>
+            <button class="app-btn app-btn--sm" onclick="toggleGrid()">TOGGLE GRID</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scan Settings — full width -->
+      <div class="settings-card settings-card--scan">
+        <div class="settings-card__head">
+          <div class="settings-card__head-accent"></div>
+          AREA SCAN — FACILITY DETECTION
+        </div>
+        <div class="settings-card__body">
+          <div class="scan-status-grid">
+            <div class="scan-stat-card">
+              <div class="scan-stat-card__label">LAST SCAN</div>
+              <div class="scan-stat-card__val" id="settings-last-scan">Never</div>
+            </div>
+            <div class="scan-stat-card">
+              <div class="scan-stat-card__label">NEXT ALLOWED</div>
+              <div class="scan-stat-card__val" id="settings-next-scan">—</div>
+            </div>
+            <div class="scan-stat-card">
+              <div class="scan-stat-card__label">CELLS SCANNED</div>
+              <div class="scan-stat-card__val" id="settings-scan-cells">—</div>
+            </div>
+            <div class="scan-stat-card">
+              <div class="scan-stat-card__label">FACILITIES FOUND</div>
+              <div class="scan-stat-card__val" id="settings-scan-found">—</div>
+            </div>
+          </div>
+
+          <!-- Grid preview -->
+          <div class="settings-row" style="align-items:flex-start;gap:20px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;">
+              <div class="settings-label" style="margin-bottom:8px;">SCAN GRID PREVIEW (1 km² cells)</div>
+              <div class="grid-preview">
+                <canvas id="grid-preview-canvas" width="400" height="170"></canvas>
+                <div class="grid-preview__label" id="grid-preview-label">Generate grid to preview</div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:10px;">
+              <div class="settings-row">
+                <span class="settings-label">GRID SIZE</span>
+                <span class="settings-value">1 km² / cell</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">GRID CELLS</span>
+                <span class="settings-value" id="settings-grid-cells">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">DELAY / CELL</span>
+                <span class="settings-value">2.2 s</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">EST. DURATION</span>
+                <span class="settings-value" id="settings-est-duration">—</span>
+              </div>
+              <button class="app-btn app-btn--sm" onclick="previewGrid()" style="margin-top:4px;">COMPUTE GRID</button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+            <button class="app-btn app-btn--primary" id="btn-scan-now" onclick="startFacilityScan(false)">
+              ↻ SCAN AREA (auto — 24h limit)
+            </button>
+            <button class="app-btn app-btn--danger" id="btn-scan-force" onclick="startFacilityScan(true)">
+              ⚡ FORCE SCAN NOW
+            </button>
+            <button class="app-btn app-btn--sm" onclick="switchPage('map')">VIEW ON MAP →</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══ Stub pages ═════════════════════════════════════════════ -->
+<div id="page-risk-inventory" class="page-overlay">
+  <div class="page-stub">
+    <div class="page-stub__icon">⚠</div>
+    <div class="page-stub__title">RISK INVENTORY</div>
+    <div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div>
+  </div>
+</div>
+<div id="page-entities-network" class="page-overlay">
+  <div class="page-stub">
+    <div class="page-stub__icon">◈</div>
+    <div class="page-stub__title">ENTITIES NETWORK</div>
+    <div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div>
+  </div>
+</div>
+<div id="page-risk-network" class="page-overlay">
+  <div class="page-stub">
+    <div class="page-stub__icon">⬡</div>
+    <div class="page-stub__title">RISK NETWORK</div>
+    <div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div>
+  </div>
+</div>
+
+<!-- Hidden file inputs -->
+<input type="file" id="fileInput"      class="hidden-input" accept=".json">
+<input type="file" id="tifFileInput"   class="hidden-input" accept=".tif,.tiff,.geotiff">
+<input type="file" id="themeFileInput" class="hidden-input" accept=".json">
+
+<!-- ══════════════════════════════════════════════════════════
+     SCRIPTS
+══════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/geotiff@2.0.7/dist-browser/geotiff.js"></script>
+<script src="https://unpkg.com/georaster"></script>
+<script src="https://unpkg.com/georaster-layer-for-leaflet"></script>
+
+<!-- ══ Project context bootstrap ════════════════════════════ -->
+<script>
+(async () => {
+  const API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:3001' : window.location.origin;
+  window.AEGIS_API = API;
+
+  const params = new URLSearchParams(window.location.search);
+  const projectId = params.get('project');
+
+  function setLoader(pct, msg) {
+    document.getElementById('loader-bar').style.width = pct + '%';
+    document.getElementById('loader-status').textContent = msg;
+  }
+
+  // ── Register the 'load' listener BEFORE any await so we never miss it.
+  // If the page already finished loading (readyState === 'complete'),
+  // call onAppReady() directly instead.
+  function onAppReady() {
+    setLoader(100, 'READY');
+    setTimeout(() => {
+      const loader = document.getElementById('app-loader');
+      loader.style.transition = 'opacity .4s';
+      loader.style.opacity = '0';
+      setTimeout(() => loader.style.display = 'none', 400);
+      ScanUI.init();
+      initAppNav();
+    }, 300);
+  }
+
+  if (document.readyState === 'complete') {
+    // Scripts already loaded — schedule via setTimeout to let inline
+    // script blocks below (workspace controller) finish parsing first.
+    setTimeout(onAppReady, 0);
+  } else {
+    window.addEventListener('load', onAppReady, { once: true });
+  }
+
+  setLoader(10, 'CONNECTING TO SERVER…');
+
+  if (!projectId) {
+    setLoader(100, 'NO PROJECT — REDIRECTING…');
+    setTimeout(() => window.location.href = 'index.html', 1500);
+    return;
+  }
+
+  try {
+    setLoader(30, 'LOADING PROJECT METADATA…');
+    const r = await axios.get(API + '/api/projects/' + projectId);
+    const project = r.data;
+    window.AEGIS_PROJECT = project;
+
+    setLoader(65, 'CONFIGURING WORKSPACE…');
+
+    document.title = 'AEGIS V3 — ' + project.name;
+    document.getElementById('ctx-project-name').textContent = project.name;
+    document.getElementById('ctx-area-name').textContent    = project.area_name || '—';
+    document.getElementById('project-mode-label').textContent = project.mode === 'simulation' ? 'SIMULATION' : 'RISK ANALYSIS';
+    document.getElementById('bottom-project-id').textContent  = project.id.slice(0,8).toUpperCase();
+
+    const modeBadge = document.getElementById('ctx-mode-badge');
+    modeBadge.textContent = project.mode === 'simulation' ? 'SIM' : 'RA';
+    modeBadge.className   = 'ctx-mode ' + (project.mode === 'simulation' ? 'ctx-mode--sim' : 'ctx-mode--ra');
+
+    document.getElementById('project-context-bar').style.display = '';
+    document.getElementById('main-nav').style.display = '';
+    document.body.classList.add('has-context-bar', 'has-nav');
+
+    setLoader(85, 'LOADING MAP ENGINE…');
+  } catch (err) {
+    setLoader(100, 'ERROR: ' + err.message + ' — check server');
+    window.AEGIS_PROJECT = null;
+    // Still show the app (offline mode)
+    document.getElementById('main-nav').style.display = '';
+    document.body.classList.add('has-nav');
+  }
+
+  document.addEventListener('aegis:mapReady', () => {
+    const project = window.AEGIS_PROJECT;
+    if (!project?.area?.geojson) return;
+    try {
+      const layer = L.geoJSON(project.area.geojson);
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) window.map?.fitBounds(bounds, { padding: [40, 40] });
+    } catch { }
+  });
+})();
+</script>
+
+<!-- ══ Map engine (V2 scripts) ══════════════════════════════ -->
+<script src="script.js"></script>
+<script src="facility-detection.js"></script>
+<script src="facilities-ui.js"></script>
+<script src="scan-engine.js"></script>
+
+<!-- ══ App workspace controller ═════════════════════════════ -->
+<script>
+// ── Current page tracking ─────────────────────────────────────
+window.currentPage = 'map';
+
+// ── Page navigation ───────────────────────────────────────────
+function switchPage(page) {
+  const stubPages = ['risk-inventory', 'entities-network', 'risk-network'];
+  if (stubPages.includes(page)) {
+    // Allow stubs to open
+  }
+
+  window.currentPage = page;
+
+  // Update nav buttons
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('nav-btn--active', btn.dataset.page === page);
+  });
+
+  // Show/hide map UI overlay
+  const mapUI = document.getElementById('ui-layer');
+  const markersPanel = document.querySelector('.markers-panel');
+  if (page === 'map') {
+    mapUI.style.display = '';
+    if (markersPanel) markersPanel.style.display = '';
+    window.map?.invalidateSize();
+  } else {
+    mapUI.style.display = 'none';
+    if (markersPanel) markersPanel.style.display = 'none';
+  }
+
+  // Show/hide page overlays
+  const overlayIds = ['facilities', 'settings', 'risk-inventory', 'entities-network', 'risk-network'];
+  overlayIds.forEach(id => {
+    const el = document.getElementById('page-' + id);
+    if (el) el.classList.toggle('page-overlay--visible', id === page);
+  });
+
+  // Page-specific init
+  if (page === 'facilities') loadFacilitiesPage();
+  if (page === 'settings')   initSettingsPage();
+}
+
+function initAppNav() {
+  // Guard: workspace controller might not be parsed yet if called very early
+  if (typeof switchPage !== 'function') {
+    setTimeout(initAppNav, 50);
+    return;
+  }
+
+  // Start on map page
+  switchPage('map');
+
+  // Scan elapsed clock
+  setInterval(() => {
+    if (window.scanEngine?.isRunning && window.scanEngine.startTime) {
+      const s = Math.round((Date.now() - window.scanEngine.startTime) / 1000);
+      const el = document.getElementById('scan-elapsed');
+      if (el) el.textContent = s + 's';
+      // Nav indicator
+      document.getElementById('nav-scan-indicator').classList.add('active');
+    } else {
+      document.getElementById('nav-scan-indicator').classList.remove('active');
+    }
+  }, 1000);
+}
+
+// ── Facility Database page ────────────────────────────────────
+let fdbAll = [];
+let fdbFiltered = [];
+let fdbSortKey = 'updated_at';
+let fdbSortDir = -1; // -1 = desc
+let fdbPage = 0;
+const FDB_PER_PAGE = 50;
+
+async function loadFacilitiesPage() {
+  const project = window.AEGIS_PROJECT;
+  if (!project) return;
+
+  const tbody = document.getElementById('fdb-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty"><span style="opacity:.5">Loading…</span></td></tr>';
+
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + project.id + '/facilities');
+    fdbAll = r.data || [];
+    document.getElementById('fdb-subtitle').textContent = project.name + ' · ' + fdbAll.length + ' total records';
+    applyFdbFilters();
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty">Error loading facilities: ' + err.message + '</td></tr>';
+  }
+}
+
+function applyFdbFilters() {
+  const q   = (document.getElementById('fdb-search')?.value || '').toLowerCase();
+  const risk = document.getElementById('fdb-risk-filter')?.value || '';
+  const cat  = document.getElementById('fdb-cat-filter')?.value || '';
+  const src  = document.getElementById('fdb-source-filter')?.value || '';
+
+  fdbFiltered = fdbAll.filter(f => {
+    if (q   && !((f.name||'').toLowerCase().includes(q) || (f.category||'').toLowerCase().includes(q) || (f.category_name||'').toLowerCase().includes(q))) return false;
+    if (risk && f.risk_level !== risk) return false;
+    if (cat  && f.category  !== cat)  return false;
+    if (src  && f.source    !== src)  return false;
+    return true;
+  });
+
+  fdbPage = 0;
+  sortAndRenderFdb();
+}
+
+function sortFdb(key) {
+  if (fdbSortKey === key) { fdbSortDir *= -1; }
+  else { fdbSortKey = key; fdbSortDir = 1; }
+
+  // Update sort arrows
+  document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '↕');
+  const arrow = document.getElementById('sort-' + key);
+  if (arrow) arrow.textContent = fdbSortDir === 1 ? '↑' : '↓';
+
+  document.querySelectorAll('.fdb-table th').forEach(th => th.classList.remove('sorted'));
+  sortAndRenderFdb();
+}
+
+function sortAndRenderFdb() {
+  const RISK_ORDER = { critical:0, hazardous:1, high:2, medium:3, low:4 };
+  fdbFiltered.sort((a, b) => {
+    let av = a[fdbSortKey] || '', bv = b[fdbSortKey] || '';
+    if (fdbSortKey === 'risk_level') { av = RISK_ORDER[av]??9; bv = RISK_ORDER[bv]??9; }
+    if (av < bv) return -1 * fdbSortDir;
+    if (av > bv) return  1 * fdbSortDir;
+    return 0;
+  });
+  renderFdbPage();
+}
+
+function renderFdbPage() {
+  const tbody = document.getElementById('fdb-tbody');
+  const count = document.getElementById('fdb-count');
+  if (count) count.textContent = fdbFiltered.length + ' facilities';
+
+  const start = fdbPage * FDB_PER_PAGE;
+  const rows  = fdbFiltered.slice(start, start + FDB_PER_PAGE);
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="fdb-empty">No facilities match the current filters.</td></tr>';
+    renderFdbPagination();
+    return;
+  }
+
+  const RISK_LABELS = { critical:'CRITICAL', hazardous:'HAZARDOUS', high:'HIGH', medium:'MEDIUM', low:'LOW' };
+
+  tbody.innerHTML = rows.map(f => {
+    const riskCls = 'risk-pill risk-pill--' + (f.risk_level || 'low');
+    const riskLbl = RISK_LABELS[f.risk_level] || (f.risk_level||'?').toUpperCase();
+    const shortId = (f.id||'').substring(0, 14).toUpperCase();
+    const lat = parseFloat(f.latitude  || 0).toFixed(5);
+    const lng = parseFloat(f.longitude || 0).toFixed(5);
+    const upd = f.updated_at ? new Date(f.updated_at).toLocaleDateString() : '—';
+    const src = (f.source||'').replace('_',' ').toUpperCase() || '—';
+    const name = escHtml(f.name || '—');
+    const catName = escHtml(f.category_name || f.category || '—');
+
+    return '<tr>' +
+      '<td><span class="fdb-uuid" title="' + escHtml(f.id||'') + '">' + escHtml(shortId) + '</span></td>' +
+      '<td title="' + name + '">' + name + '</td>' +
+      '<td>' + catName + '</td>' +
+      '<td><span class="' + riskCls + '">' + riskLbl + '</span></td>' +
+      '<td>' + src + '</td>' +
+      '<td style="font-size:9px;color:#5a6378;">' + lat + ' / ' + lng + '</td>' +
+      '<td style="font-size:9px;color:#5a6378;">' + upd + '</td>' +
+      '<td><button class="fdb-action-btn" onclick="locateFacilityOnMap(' + JSON.stringify({lat:f.latitude,lng:f.longitude,name:f.name}).replace(/"/g,"'") + ')">MAP</button></td>' +
+    '</tr>';
+  }).join('');
+
+  renderFdbPagination();
+}
+
+function renderFdbPagination() {
+  const total   = Math.ceil(fdbFiltered.length / FDB_PER_PAGE);
+  const pgEl    = document.getElementById('fdb-pagination');
+  if (!pgEl) return;
+  if (total <= 1) { pgEl.innerHTML = ''; return; }
+
+  let html = '<button class="fdb-page-btn" onclick="fdbGoPage(' + (fdbPage-1) + ')" ' + (fdbPage===0?'disabled':'') + '>← PREV</button>';
+  for (let i = 0; i < total; i++) {
+    if (total > 8 && Math.abs(i - fdbPage) > 2 && i !== 0 && i !== total-1) {
+      if (i === 1 || i === total-2) html += '<span style="color:#3a4155;padding:0 4px">…</span>';
+      continue;
+    }
+    html += '<button class="fdb-page-btn' + (i===fdbPage?' active':'') + '" onclick="fdbGoPage(' + i + ')">' + (i+1) + '</button>';
+  }
+  html += '<button class="fdb-page-btn" onclick="fdbGoPage(' + (fdbPage+1) + ')" ' + (fdbPage>=total-1?'disabled':'') + '>NEXT →</button>';
+  pgEl.innerHTML = html;
+}
+
+function fdbGoPage(p) {
+  const total = Math.ceil(fdbFiltered.length / FDB_PER_PAGE);
+  fdbPage = Math.max(0, Math.min(p, total - 1));
+  renderFdbPage();
+}
+
+function locateFacilityOnMap(coords) {
+  switchPage('map');
+  setTimeout(() => {
+    if (window.map) {
+      window.map.setView([parseFloat(coords.lat), parseFloat(coords.lng)], 16);
+    }
+  }, 100);
+}
+
+function exportFdbGeoJSON() {
+  const features = fdbFiltered.map(f => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [parseFloat(f.longitude), parseFloat(f.latitude)] },
+    properties: { id: f.id, name: f.name, category: f.category, risk_level: f.risk_level, source: f.source }
+  }));
+  const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'facilities_' + (window.AEGIS_PROJECT?.name || 'export').replace(/\s/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.geojson';
+  a.click();
+}
+
+// ── Settings page ─────────────────────────────────────────────
+function initSettingsPage() {
+  const p = window.AEGIS_PROJECT;
+  if (!p) return;
+
+  document.getElementById('s-name').textContent    = p.name || '—';
+  document.getElementById('s-mode').textContent    = (p.mode || '—').toUpperCase().replace('_',' ');
+  document.getElementById('s-area').textContent    = p.area_name || '—';
+  document.getElementById('s-created').textContent = p.created_at ? new Date(p.created_at).toLocaleString() : '—';
+  document.getElementById('s-id').textContent      = p.id || '—';
+
+  refreshScanStatus();
+}
+
+function previewGrid() {
+  const project = window.AEGIS_PROJECT;
+  if (!project?.area?.geojson) {
+    alert('No area GeoJSON found in project.'); return;
+  }
+
+  const engine = new ScanEngine();
+  let cells;
+  try {
+    cells = engine.generateGrid(project.area.geojson);
+  } catch (err) {
+    alert('Grid generation error: ' + err.message); return;
+  }
+
+  const cellCount = cells.length;
+  const estSecs   = Math.ceil(cellCount * 2.2);
+  const estMin    = Math.floor(estSecs / 60);
+  const estSec    = estSecs % 60;
+
+  document.getElementById('settings-grid-cells').textContent   = cellCount + ' cells';
+  document.getElementById('settings-est-duration').textContent = estMin + 'm ' + estSec + 's';
+
+  // Draw grid preview on canvas
+  drawGridPreview(cells, project.area.geojson);
+}
+
+function drawGridPreview(cells, geojson) {
+  const canvas = document.getElementById('grid-preview-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // Get bbox
+  let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+  cells.forEach(c => {
+    minLat=Math.min(minLat,c.south); maxLat=Math.max(maxLat,c.north);
+    minLng=Math.min(minLng,c.west);  maxLng=Math.max(maxLng,c.east);
+  });
+  const pad = 8;
+  function toX(lng) { return pad + (lng - minLng) / (maxLng - minLng) * (W - pad*2); }
+  function toY(lat) { return pad + (maxLat - lat) / (maxLat - minLat) * (H - pad*2); }
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#050810';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw polygon outline
+  ctx.strokeStyle = 'rgba(245,158,11,0.6)';
+  ctx.lineWidth = 1.5;
+  (geojson.features || []).forEach(f => {
+    const geom = f.geometry;
+    if (!geom) return;
+    const rings = geom.type === 'Polygon' ? geom.coordinates : geom.type === 'MultiPolygon' ? geom.coordinates.map(p=>p[0]) : [];
+    rings.forEach(ring => {
+      ctx.beginPath();
+      ring.forEach(([lng,lat],i) => { i===0?ctx.moveTo(toX(lng),toY(lat)):ctx.lineTo(toX(lng),toY(lat)); });
+      ctx.closePath();
+      ctx.stroke();
+    });
+  });
+
+  // Draw cells
+  ctx.strokeStyle = 'rgba(58,65,85,0.7)';
+  ctx.fillStyle   = 'rgba(245,158,11,0.05)';
+  ctx.lineWidth   = 0.5;
+  cells.forEach(c => {
+    const x = toX(c.west), y = toY(c.north);
+    const w = toX(c.east) - x, h = toY(c.south) - y;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+  });
+
+  document.getElementById('grid-preview-label').textContent = cells.length + ' cells · 1 km²';
+}
+
+// ── Theme / layer syncing (settings ↔ map) ─────────────────────
+function changeMapLayer(val) {
+  const sel = document.getElementById('mapLayerSelector');
+  if (sel) { sel.value = val; sel.dispatchEvent(new Event('change')); }
+}
+function changeTheme(val) {
+  const sel = document.getElementById('themeSelector');
+  if (sel) { sel.value = val; sel.dispatchEvent(new Event('change')); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s || '');
+  return d.innerHTML;
+}
+
+// ── After map engine loads ────────────────────────────────────
+window.addEventListener('load', () => {
+  document.dispatchEvent(new CustomEvent('aegis:mapReady'));
+  setTimeout(() => {
+    if (window.map) initializeFacilityDetection();
+  }, 500);
+});
+</script>
+</body>
+</html>

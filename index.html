@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AEGIS V3 — Adaptive Emergency Geospatial Intelligence System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <link rel="stylesheet" href="style-home.css" />
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="vignette"></div>
+
+<header class="sys-bar">
+  <div class="sys-bar__left">
+    <span class="sys-bar__logo">AEGIS</span>
+    <span class="sys-bar__ver">V3.0.0-α</span>
+    <span class="sys-bar__sep">|</span>
+    <span class="status-dot status-dot--ok"></span>
+    <span class="sys-bar__label">SYS NOMINAL</span>
+  </div>
+  <div class="sys-bar__center">
+    <span id="clock" class="sys-bar__clock">--:--:--</span>
+    <span class="sys-bar__sep">|</span>
+    <span id="utc-date" class="sys-bar__label">--- -- ----</span>
+  </div>
+  <div class="sys-bar__right">
+    <span class="status-dot status-dot--ok"></span><span class="sys-bar__label">OSM</span>
+    <span class="sys-bar__sep">·</span>
+    <span class="status-dot status-dot--warn" id="places-status"></span><span class="sys-bar__label" id="places-label">PLACES</span>
+    <span class="sys-bar__sep">·</span>
+    <span class="status-dot" id="db-status"></span><span class="sys-bar__label">DB</span>
+  </div>
+</header>
+
+<main class="main">
+  <section class="hero">
+    <div class="hero__eyebrow">ADAPTIVE EMERGENCY GEOSPATIAL INTELLIGENCE SYSTEM</div>
+    <h1 class="hero__title"><span class="hero__title-glyph">A</span>EGIS</h1>
+    <p class="hero__sub">Cascading Risk Analysis · Predictive Modelling · Emergency Response Support</p>
+    <div class="hero__divider"></div>
+    <p class="hero__prompt">SELECT OPERATING MODE TO CONTINUE</p>
+  </section>
+
+  <section class="modes">
+    <!-- Real-time — locked -->
+    <div class="mode-card mode-card--locked" data-mode="realtime">
+      <div class="mode-card__corner mode-card__corner--tl"></div>
+      <div class="mode-card__corner mode-card__corner--br"></div>
+      <div class="mode-card__badge">COMING SOON</div>
+      <div class="mode-card__icon">
+        <svg viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="14" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 2"/><circle cx="20" cy="20" r="4" fill="currentColor"/><line x1="20" y1="6" x2="20" y2="2" stroke="currentColor" stroke-width="1.5"/><line x1="20" y1="38" x2="20" y2="34" stroke="currentColor" stroke-width="1.5"/><line x1="6" y1="20" x2="2" y2="20" stroke="currentColor" stroke-width="1.5"/><line x1="38" y1="20" x2="34" y2="20" stroke="currentColor" stroke-width="1.5"/></svg>
+      </div>
+      <h2 class="mode-card__title">Real-Time Mapping</h2>
+      <p class="mode-card__desc">Live operational monitoring with continuous sensor feeds, real-time facility status updates and incident overlays connected to live data pipelines.</p>
+      <div class="mode-card__meta"><span class="mode-tag mode-tag--rt">RT</span><span class="mode-card__meta-text">LIVE · OPERATIONAL</span></div>
+      <div class="mode-card__lock">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M12 6h-1V4a3 3 0 0 0-6 0v2H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-5 5.73V13H9v-1.27a1.5 1.5 0 1 0-2 0zM10 6H6V4a2 2 0 1 1 4 0v2z"/></svg>
+        MODULE LOCKED
+      </div>
+    </div>
+
+    <!-- Simulation -->
+    <div class="mode-card mode-card--sim mode-card--active" data-mode="simulation" onclick="selectMode('simulation')">
+      <div class="mode-card__corner mode-card__corner--tl"></div>
+      <div class="mode-card__corner mode-card__corner--br"></div>
+      <div class="mode-card__badge mode-card__badge--active">ACTIVE</div>
+      <div class="mode-card__glow"></div>
+      <div class="mode-card__icon">
+        <svg viewBox="0 0 40 40" fill="none"><rect x="4" y="12" width="32" height="20" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M12 8h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M16 4h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13 22l4 4 10-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <h2 class="mode-card__title">Simulation</h2>
+      <p class="mode-card__desc">Isolated sandbox environment for scenario design, hypothesis testing and cascading failure modelling. No impact on operational data.</p>
+      <div class="mode-card__meta"><span class="mode-tag mode-tag--sim">SIM</span><span class="mode-card__meta-text">SANDBOXED · SCENARIO-BASED</span></div>
+      <div class="mode-card__cta">ENTER MODULE →</div>
+    </div>
+
+    <!-- Risk Analysis -->
+    <div class="mode-card mode-card--ra mode-card--active" data-mode="risk_analysis" onclick="selectMode('risk_analysis')">
+      <div class="mode-card__corner mode-card__corner--tl"></div>
+      <div class="mode-card__corner mode-card__corner--br"></div>
+      <div class="mode-card__badge mode-card__badge--active">ACTIVE</div>
+      <div class="mode-card__glow"></div>
+      <div class="mode-card__icon">
+        <svg viewBox="0 0 40 40" fill="none"><path d="M20 4L34 30H6L20 4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><line x1="20" y1="17" x2="20" y2="24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="20" cy="27" r="1.5" fill="currentColor"/></svg>
+      </div>
+      <h2 class="mode-card__title">Risk Analysis</h2>
+      <p class="mode-card__desc">Operational multi-hazard risk assessment with persistent data, dependency mapping, vulnerability indices and mitigation recommendations.</p>
+      <div class="mode-card__meta"><span class="mode-tag mode-tag--ra">RA</span><span class="mode-card__meta-text">OPERATIONAL · PERSISTENT</span></div>
+      <div class="mode-card__cta">ENTER MODULE →</div>
+    </div>
+  </section>
+</main>
+
+<footer class="sys-footer">
+  <span>AEGIS V3 © 2025 — RESTRICTED USE</span>
+  <span class="sys-bar__sep">|</span>
+  <span>ISO 31000 · ISO 22301 · UNDRR SENDAI ALIGNED</span>
+  <span class="sys-bar__sep">|</span>
+  <span id="footer-build">BUILD: ---</span>
+</footer>
+
+<!-- PROJECT PANEL -->
+<div id="project-panel" class="project-panel">
+  <div class="project-panel__inner">
+    <div class="panel-header">
+      <div class="panel-header__left">
+        <span id="panel-mode-badge" class="mode-tag">---</span>
+        <h2 class="panel-header__title" id="panel-title">PROJECT MANAGER</h2>
+      </div>
+      <button class="panel-close" onclick="closeProjectPanel()">✕ CLOSE</button>
+    </div>
+    <button class="btn btn--primary btn--full" onclick="showNewProjectWizard()">+ NEW PROJECT</button>
+    <div class="project-list-header">
+      <span>SAVED PROJECTS</span>
+      <input type="text" id="project-search" class="project-search" placeholder="Filter…" oninput="filterProjects(this.value)">
+    </div>
+    <div id="project-list" class="project-list">
+      <div class="project-list__loading"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+</div>
+<div id="panel-backdrop" class="panel-backdrop" onclick="closeProjectPanel()"></div>
+
+<!-- WIZARD MODAL -->
+<div id="wizard-modal" class="modal-overlay" style="display:none;">
+  <div class="modal">
+    <!-- Progress -->
+    <div class="wizard-progress">
+      <div class="wizard-step wizard-step--active" id="wstep-1"><span class="wizard-step__num">01</span><span class="wizard-step__label">IDENTITY</span></div>
+      <div class="wizard-connector"></div>
+      <div class="wizard-step" id="wstep-2"><span class="wizard-step__num">02</span><span class="wizard-step__label">AREA</span></div>
+      <div class="wizard-connector"></div>
+      <div class="wizard-step" id="wstep-3"><span class="wizard-step__num">03</span><span class="wizard-step__label">CONFIRM</span></div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="wizard-step-1" class="wizard-body">
+      <h3 class="wizard-body__title">PROJECT IDENTITY</h3>
+      <p class="wizard-body__sub">Name this project. Mode: <span id="w-mode-label" class="mode-badge-inline">---</span></p>
+      <div class="form-group">
+        <label class="form-label">PROJECT NAME <span class="required">*</span></label>
+        <input type="text" id="w-name" class="form-input" placeholder="e.g. Marseille Industrial Corridor — 2025" maxlength="80">
+      </div>
+      <div class="form-group">
+        <label class="form-label">DESCRIPTION</label>
+        <textarea id="w-desc" class="form-input form-textarea" placeholder="Scope, objectives, data sources…" rows="3" maxlength="400"></textarea>
+      </div>
+      <div class="wizard-nav">
+        <button class="btn btn--ghost" onclick="closeWizard()">CANCEL</button>
+        <button class="btn btn--primary" onclick="wizardNext(1)">NEXT: AREA DEFINITION →</button>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="wizard-step-2" class="wizard-body" style="display:none;">
+      <h3 class="wizard-body__title">AREA DEFINITION</h3>
+      <p class="wizard-body__sub">Upload a boundary file or search administrative boundaries via OpenStreetMap.</p>
+      <div class="source-tabs">
+        <button class="source-tab source-tab--active" id="tab-file" onclick="switchAreaTab('file')">📂 UPLOAD FILE</button>
+        <button class="source-tab" id="tab-osm" onclick="switchAreaTab('osm')">🔍 OSM BOUNDARIES</button>
+      </div>
+
+      <!-- File pane -->
+      <div id="area-file-pane" class="area-pane">
+        <div class="dropzone" id="dropzone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave()" ondrop="handleDrop(event)">
+          <div class="dropzone__icon">↑</div>
+          <div class="dropzone__main">DROP FILE HERE</div>
+          <div class="dropzone__sub">GeoJSON (.geojson / .json) · Shapefile (.zip) · KML (.kml)</div>
+          <button class="btn btn--ghost btn--sm" onclick="document.getElementById('area-file-input').click()">BROWSE FILE</button>
+        </div>
+        <input type="file" id="area-file-input" accept=".geojson,.json,.zip,.kml" style="display:none" onchange="handleFileSelect(event)">
+        <div id="file-status" class="file-status" style="display:none;"></div>
+      </div>
+
+      <!-- OSM pane -->
+      <div id="area-osm-pane" class="area-pane" style="display:none;">
+        <div class="osm-search-row">
+          <input type="text" id="osm-search-input" class="form-input" placeholder="Search city or territory…" oninput="debounceOsmSearch(this.value)">
+          <span class="osm-spinner" id="osm-spinner" style="display:none;">⟳</span>
+        </div>
+        <div id="osm-results" class="osm-results"></div>
+        <div id="district-section" class="district-section" style="display:none;">
+          <div class="district-header">
+            <span>DISTRICTS / ARRONDISSEMENTS</span>
+            <button class="btn btn--ghost btn--xs" onclick="clearDistrictSelection()">CLEAR</button>
+          </div>
+          <p class="district-hint">Select sub-areas to narrow scope. Leave empty to use the full boundary.</p>
+          <div id="district-list" class="district-list"></div>
+        </div>
+      </div>
+
+      <!-- Preview map -->
+      <div id="area-preview-wrap" class="area-preview-wrap" style="display:none;">
+        <div class="area-preview-label">BOUNDARY PREVIEW</div>
+        <div id="preview-map-container" style="height:200px;border-radius:3px;overflow:hidden;"></div>
+        <div id="preview-stats" class="preview-stats"></div>
+      </div>
+
+      <div class="wizard-nav">
+        <button class="btn btn--ghost" onclick="wizardBack(2)">← BACK</button>
+        <button class="btn btn--primary" id="w-step2-next" onclick="wizardNext(2)" disabled>NEXT: REVIEW →</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="wizard-step-3" class="wizard-body" style="display:none;">
+      <h3 class="wizard-body__title">REVIEW & CREATE</h3>
+      <p class="wizard-body__sub">Confirm project parameters before initialization.</p>
+      <div class="review-card" id="review-card"></div>
+      <div id="create-error" class="error-msg" style="display:none;"></div>
+      <div class="wizard-nav">
+        <button class="btn btn--ghost" onclick="wizardBack(3)">← BACK</button>
+        <button class="btn btn--primary btn--wide" id="create-btn" onclick="createProject()">⬡ INITIALIZE PROJECT</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/shpjs@4.0.2/dist/shp.js"></script>
+<script src="homepage.js"></script>
+</body>
+</html>

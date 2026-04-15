@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>AEGIS V3 — Access</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style-home.css"/>
+<style>
+.auth-card{
+  width:100%;max-width:400px;
+  background:var(--bg-panel);
+  border:1px solid var(--border-bright);
+  padding:36px 32px;
+  display:flex;flex-direction:column;gap:20px;
+}
+.auth-title{font-size:11px;letter-spacing:4px;color:var(--text-muted);text-align:center;}
+.auth-logo{font-size:36px;font-weight:700;letter-spacing:10px;color:#fff;text-align:center;}
+.auth-logo span{color:var(--accent-sim);}
+.auth-divider{height:1px;background:var(--border);margin:4px 0;}
+.auth-input{
+  width:100%;background:var(--bg-deep);
+  border:1px solid var(--border);color:var(--text);
+  font-family:var(--font);font-size:12px;
+  padding:11px 14px;outline:none;
+  transition:border-color .15s;
+}
+.auth-input:focus{border-color:var(--border-bright);}
+.auth-input::placeholder{color:var(--text-dim);}
+.auth-label{font-size:8px;letter-spacing:2px;color:var(--text-muted);margin-bottom:4px;}
+.auth-field{display:flex;flex-direction:column;}
+.auth-btn{
+  width:100%;font-family:var(--font);font-size:11px;letter-spacing:2px;
+  padding:12px;border:1px solid var(--border-bright);
+  background:var(--text);color:#000;cursor:pointer;
+  transition:all .15s;font-weight:700;
+}
+.auth-btn:hover{background:#fff;}
+.auth-btn:disabled{opacity:.4;cursor:not-allowed;}
+.auth-error{
+  font-size:10px;color:#f87171;letter-spacing:1px;
+  padding:8px 12px;border:1px solid rgba(239,68,68,.3);
+  background:rgba(239,68,68,.06);display:none;
+}
+.auth-switch{
+  font-size:9px;color:var(--text-dim);letter-spacing:1px;text-align:center;
+}
+.auth-switch a{color:var(--text-muted);cursor:pointer;text-decoration:none;}
+.auth-switch a:hover{color:var(--text);}
+.auth-hint{font-size:9px;color:var(--text-dim);letter-spacing:.5px;}
+.invite-badge{
+  font-size:8px;letter-spacing:2px;padding:3px 8px;
+  border:1px solid var(--accent-ok);color:var(--accent-ok);
+  background:rgba(34,197,94,.06);text-align:center;
+  display:none;
+}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="vignette"></div>
+
+<header class="sys-bar">
+  <div class="sys-bar__left">
+    <span class="sys-bar__logo">AEGIS</span>
+    <span class="sys-bar__ver">V3.0.0-α</span>
+    <span class="sys-bar__sep">|</span>
+    <span class="sys-bar__label">ACCESS CONTROL</span>
+  </div>
+  <div class="sys-bar__center">
+    <span id="clock" class="sys-bar__clock">--:--:--</span>
+  </div>
+  <div class="sys-bar__right">
+    <span class="sys-bar__label">RESTRICTED SYSTEM</span>
+  </div>
+</header>
+
+<main class="main">
+  <div class="auth-card">
+    <div>
+      <div class="auth-logo"><span>A</span>EGIS</div>
+      <div class="auth-title">ADAPTIVE EMERGENCY GEOSPATIAL INTELLIGENCE</div>
+    </div>
+
+    <div class="invite-badge" id="invite-badge">INVITE REGISTRATION</div>
+    <div class="auth-divider"></div>
+    <div class="auth-error" id="auth-error"></div>
+
+    <!-- Login form -->
+    <div id="form-login">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="auth-field">
+          <div class="auth-label">USERNAME OR EMAIL</div>
+          <input class="auth-input" id="l-user" type="text" placeholder="username" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <div class="auth-field">
+          <div class="auth-label">PASSWORD</div>
+          <input class="auth-input" id="l-pass" type="password" placeholder="••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <button class="auth-btn" id="l-btn" onclick="doLogin()">AUTHENTICATE →</button>
+      </div>
+    </div>
+
+    <!-- Register form (invite only) -->
+    <div id="form-register" style="display:none;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="auth-field">
+          <div class="auth-label">EMAIL (from invite)</div>
+          <input class="auth-input" id="r-email" type="email" placeholder="your@email.com" readonly style="opacity:.6;">
+        </div>
+        <div class="auth-field">
+          <div class="auth-label">CHOOSE USERNAME</div>
+          <input class="auth-input" id="r-user" type="text" placeholder="3-30 chars, letters/numbers/_/-" autocomplete="username">
+          <div class="auth-hint" style="margin-top:4px;">Letters, numbers, underscore and hyphen only.</div>
+        </div>
+        <div class="auth-field">
+          <div class="auth-label">SET PASSWORD</div>
+          <input class="auth-input" id="r-pass" type="password" placeholder="Min 10 characters" autocomplete="new-password">
+        </div>
+        <div class="auth-field">
+          <div class="auth-label">CONFIRM PASSWORD</div>
+          <input class="auth-input" id="r-pass2" type="password" placeholder="Repeat password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">
+        </div>
+        <button class="auth-btn" id="r-btn" onclick="doRegister()">CREATE ACCOUNT →</button>
+      </div>
+    </div>
+
+    <div class="auth-switch" id="form-switch" style="display:none;">
+      Have an account? <a onclick="showLogin()">Sign in</a>
+    </div>
+  </div>
+</main>
+
+<footer class="sys-footer">
+  <span>AEGIS V3 — RESTRICTED USE</span>
+  <span class="sys-bar__sep">|</span>
+  <span>Unauthorized access prohibited</span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+<script>
+const API = (window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')
+  ? 'http://localhost:3001' : window.location.origin;
+
+// Clock
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('fr-FR',{hour12:false});
+}, 1000);
+
+function showError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = '';
+}
+function clearError() {
+  document.getElementById('auth-error').style.display = 'none';
+}
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = loading;
+  btn.textContent = loading ? '⟳ PROCESSING…' : (btnId === 'l-btn' ? 'AUTHENTICATE →' : 'CREATE ACCOUNT →');
+}
+
+// ── Login ─────────────────────────────────────────────────────
+async function doLogin() {
+  clearError();
+  const username = document.getElementById('l-user').value.trim();
+  const password = document.getElementById('l-pass').value;
+  if (!username || !password) { showError('Username and password required.'); return; }
+
+  setLoading('l-btn', true);
+  try {
+    await axios.post(API + '/api/auth/login', { username, password }, { withCredentials: true });
+    window.location.href = 'index.html';
+  } catch (err) {
+    const msg = err.response?.data?.error || 'Login failed. Check credentials.';
+    showError(msg);
+  } finally {
+    setLoading('l-btn', false);
+  }
+}
+
+// ── Register ──────────────────────────────────────────────────
+let _inviteToken = null;
+
+async function doRegister() {
+  clearError();
+  const username = document.getElementById('r-user').value.trim();
+  const password = document.getElementById('r-pass').value;
+  const pass2    = document.getElementById('r-pass2').value;
+  if (!username || !password) { showError('All fields required.'); return; }
+  if (password !== pass2) { showError('Passwords do not match.'); return; }
+  if (password.length < 10) { showError('Password must be at least 10 characters.'); return; }
+  if (!/^[a-zA-Z0-9_-]{3,30}$/.test(username)) {
+    showError('Username: 3-30 characters, letters/numbers/_ or - only.'); return;
+  }
+
+  setLoading('r-btn', true);
+  try {
+    await axios.post(API + '/api/auth/invite/use',
+      { token: _inviteToken, username, password },
+      { withCredentials: true }
+    );
+    window.location.href = 'index.html';
+  } catch (err) {
+    showError(err.response?.data?.error || 'Registration failed.');
+  } finally {
+    setLoading('r-btn', false);
+  }
+}
+
+function showLogin() {
+  document.getElementById('form-login').style.display = '';
+  document.getElementById('form-register').style.display = 'none';
+  document.getElementById('form-switch').style.display = 'none';
+  document.getElementById('invite-badge').style.display = 'none';
+  clearError();
+}
+
+// ── Check for invite token in URL ─────────────────────────────
+async function init() {
+  // If already logged in, redirect
+  try {
+    await axios.get(API + '/api/auth/me', { withCredentials: true });
+    window.location.href = 'index.html';
+    return;
+  } catch { /* not logged in — show form */ }
+
+  const params = new URLSearchParams(window.location.search);
+  const token  = params.get('invite');
+
+  if (token) {
+    try {
+      const r = await axios.get(API + '/api/auth/invite/check/' + token);
+      if (r.data.valid) {
+        _inviteToken = token;
+        document.getElementById('r-email').value = r.data.email;
+        document.getElementById('form-login').style.display = 'none';
+        document.getElementById('form-register').style.display = '';
+        document.getElementById('form-switch').style.display = '';
+        document.getElementById('invite-badge').style.display = '';
+      } else {
+        showError('This invite link is invalid or has expired.');
+      }
+    } catch {
+      showError('Could not validate invite token. Check server connection.');
+    }
+  }
+}
+
+init();
+</script>
+</body>
+</html>
