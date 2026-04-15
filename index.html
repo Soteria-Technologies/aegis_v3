@@ -31,6 +31,24 @@
     <span class="status-dot status-dot--warn" id="places-status"></span><span class="sys-bar__label" id="places-label">PLACES</span>
     <span class="sys-bar__sep">·</span>
     <span class="status-dot" id="db-status"></span><span class="sys-bar__label">DB</span>
+    <span class="sys-bar__sep">|</span>
+    <span class="sys-bar__label" style="color:var(--text);" id="hp-username"></span>
+    <span id="hp-admin-link" style="display:none;">
+      <a href="admin.html"
+        style="color:var(--accent-sim);text-decoration:none;font-size:8px;letter-spacing:1px;
+          border:1px solid var(--accent-sim);padding:2px 8px;transition:all .15s;"
+        onmouseover="this.style.background='rgba(245,158,11,.1)'"
+        onmouseout="this.style.background='none'">
+        ADMIN ↗
+      </a>
+    </span>
+    <button onclick="doLogout()"
+      style="background:none;border:1px solid rgba(255,255,255,0.12);color:#5a6378;
+        font-family:inherit;font-size:8px;letter-spacing:1px;padding:2px 8px;cursor:pointer;
+        transition:all .15s;"
+      onmouseover="this.style.color='#c8d0e0'" onmouseout="this.style.color='#5a6378'">
+      SIGN OUT
+    </button>
   </div>
 </header>
 

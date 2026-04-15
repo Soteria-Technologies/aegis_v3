@@ -258,6 +258,93 @@ function registerAuthRoutes(app) {
       res.status(500).json({ error: err.message });
     }
   });
+  // ── Admin-only routes ──────────────────────────────────────────
+
+  // GET /api/admin/users
+  app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const users = await dbAll(
+        `SELECT id, username, email, role, is_active, created_at, last_login FROM users ORDER BY created_at DESC`
+      );
+      res.json(users);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // POST /api/admin/invite — create invite link
+  app.post('/api/admin/invite', requireAuth, requireAdmin, async (req, res) => {
+    const { email, expires_days = 7 } = req.body || {};
+    if (!email?.trim()) return res.status(400).json({ error: 'Email required' });
+
+    const existing = await dbGet(`SELECT id FROM users WHERE email = ?`, [email.trim()]);
+    if (existing) return res.status(409).json({ error: 'A user with this email already exists' });
+
+    const token     = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + expires_days * 86400000).toISOString();
+    const invites   = readInvites();
+
+    // Revoke any existing unused invites for this email
+    invites.forEach(i => { if (i.email === email.trim() && !i.used) i.revoked = true; });
+
+    const invite = { token, email: email.trim(), created_at: new Date().toISOString(),
+      expires_at: expiresAt, used: false, created_by: req.user.username };
+    invites.push(invite);
+    writeInvites(invites);
+
+    const host    = req.headers.origin || `${req.protocol}://${req.get('host')}`;
+    const inviteUrl = `${host}/login.html?invite=${token}`;
+    res.json({ ok: true, token, email: email.trim(), expires_at: expiresAt, invite_url: inviteUrl });
+  });
+
+  // GET /api/admin/invites — list all invites
+  app.get('/api/admin/invites', requireAuth, requireAdmin, (req, res) => {
+    const invites = readInvites()
+      .filter(i => !i.revoked)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json(invites);
+  });
+
+  // DELETE /api/admin/invite/:token — revoke
+  app.delete('/api/admin/invite/:token', requireAuth, requireAdmin, (req, res) => {
+    const invites = readInvites();
+    const invite  = invites.find(i => i.token === req.params.token);
+    if (!invite) return res.status(404).json({ error: 'Invite not found' });
+    invite.revoked = true;
+    writeInvites(invites);
+    res.json({ ok: true });
+  });
+
+  // PATCH /api/admin/users/:id — toggle active / change role
+  app.patch('/api/admin/users/:id', requireAuth, requireAdmin, async (req, res) => {
+    const { is_active, role } = req.body || {};
+    const allowed_roles = ['user', 'admin'];
+    if (role !== undefined && !allowed_roles.includes(role))
+      return res.status(400).json({ error: 'Invalid role' });
+
+    // Prevent admin from disabling themselves
+    if (req.params.id === req.user.userId && is_active === false)
+      return res.status(400).json({ error: 'Cannot disable your own account' });
+
+    const updates = [];
+    const params  = [];
+    if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
+    if (role      !== undefined) { updates.push('role = ?');      params.push(role); }
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+
+    params.push(req.params.id);
+    await dbRun(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+    const user = await dbGet(`SELECT id, username, email, role, is_active FROM users WHERE id = ?`, [req.params.id]);
+    res.json(user);
+  });
+
+  // POST /api/admin/users/:id/reset-password
+  app.post('/api/admin/users/:id/reset-password', requireAuth, requireAdmin, async (req, res) => {
+    const { password } = req.body || {};
+    if (!password || password.length < 10)
+      return res.status(400).json({ error: 'Password must be at least 10 characters' });
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    await dbRun(`UPDATE users SET password_hash = ? WHERE id = ?`, [hash, req.params.id]);
+    res.json({ ok: true });
+  });
 }
 
 module.exports = {

@@ -9,13 +9,21 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // Send cookies with every request
 axios.defaults.withCredentials = true;
 
+// ── State ─────────────────────────────────────────────────────
+let _me = null;
+
 // ── Auth guard ────────────────────────────────────────────────────
 async function checkAuth() {
   try {
     const r = await axios.get(`${API}/api/auth/me`);
-    // Show username in header if element exists
+    _me = r.data;
     const userEl = document.getElementById('hp-username');
     if (userEl) userEl.textContent = r.data.username;
+    // Show admin link for admins
+    if (r.data.role === 'admin') {
+      const adminLink = document.getElementById('hp-admin-link');
+      if (adminLink) adminLink.style.display = '';
+    }
   } catch {
     window.location.href = 'login.html';
   }
