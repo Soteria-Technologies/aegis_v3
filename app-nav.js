@@ -263,11 +263,17 @@
     if (!window.AEGIS_PROJECT) { alert('No project loaded.'); return; }
     if (!window.AEGIS_PROJECT.area?.geojson) { alert('Project has no area defined.'); return; }
     try {
-      const r = await axios.post(`${API}/api/projects/${projectId}/scan/start`, { force });
+      // Read batch size from saved prefs (set in Settings page)
+      let batchSize = 4;
+      try {
+        const p = JSON.parse(localStorage.getItem('aegis-workspace-prefs') || '{}');
+        batchSize = Math.min(Math.max(parseInt(p.scanBatchSize) || 4, 1), 16);
+      } catch {}
+
+      const r = await axios.post(`${API}/api/projects/${projectId}/scan/start`, { force, batchSize });
       if (r.data.throttled) {
         alert(r.data.message);
       } else {
-        // Clear old log
         const log = document.getElementById('scan-log');
         if (log) log.innerHTML = '';
         document.getElementById('scan-panel')?.classList.add('scan-panel--visible');

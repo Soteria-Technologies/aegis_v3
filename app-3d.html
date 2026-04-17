@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>AEGIS V3 — 3D View</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --c-bg:#050810; --c-panel:rgba(11,15,28,.94); --c-card:#0e1220;
+  --c-border:rgba(255,255,255,0.08); --c-border2:rgba(255,255,255,0.16);
+  --c-text:#c8d0e0; --c-muted:#5a6378; --c-dim:#3a4155;
+  --c-amber:#f59e0b;
+  --font:'Roboto Mono',monospace;
+}
+html,body{height:100%;background:var(--c-bg);color:var(--c-text);font-family:var(--font);overflow:hidden;}
+
+/* Top bar */
+#top-bar{
+  position:fixed;top:0;left:0;right:0;height:40px;z-index:10;
+  background:var(--c-panel);border-bottom:1px solid var(--c-border2);
+  display:flex;align-items:center;padding:0 16px;gap:14px;
+}
+.tb-logo{font-size:13px;font-weight:700;letter-spacing:4px;color:#fff;}
+.tb-logo span{color:var(--c-amber);}
+.tb-badge{
+  font-size:8px;letter-spacing:3px;padding:2px 6px;
+  color:var(--c-amber);border:1px solid var(--c-amber);
+}
+.tb-back{
+  margin-left:auto;background:none;border:1px solid var(--c-border);
+  color:var(--c-muted);font-family:var(--font);font-size:9px;letter-spacing:1px;
+  padding:4px 12px;cursor:pointer;transition:all .15s;text-decoration:none;
+}
+.tb-back:hover{color:var(--c-text);border-color:var(--c-border2);}
+
+/* Map */
+#map{position:fixed;top:40px;left:0;right:0;bottom:36px;}
+
+/* Controls panel */
+#ctrl-panel{
+  position:fixed;top:56px;left:16px;z-index:20;
+  background:var(--c-panel);border:1px solid var(--c-border2);
+  padding:14px;width:240px;display:flex;flex-direction:column;gap:10px;
+}
+.ctrl-title{font-size:9px;letter-spacing:3px;color:var(--c-muted);margin-bottom:4px;}
+.ctrl-row{display:flex;align-items:center;gap:8px;}
+.ctrl-row label{font-size:9px;letter-spacing:1px;color:var(--c-muted);flex:1;}
+.ctrl-row input[type="range"]{flex:1;accent-color:var(--c-amber);}
+.ctrl-val{font-size:9px;color:var(--c-amber);min-width:32px;text-align:right;}
+
+/* Status bar */
+#status-bar{
+  position:fixed;bottom:0;left:0;right:0;height:36px;z-index:10;
+  background:var(--c-panel);border-top:1px solid var(--c-border);
+  display:flex;align-items:center;padding:0 16px;gap:16px;font-size:9px;
+  color:var(--c-muted);letter-spacing:1px;
+}
+.sb-item b{color:var(--c-text);font-weight:500;}
+</style>
+</head>
+<body>
+
+<div id="top-bar">
+  <span class="tb-logo"><span>A</span>EGIS</span>
+  <span class="tb-badge">3D VIEW</span>
+  <span id="project-name" style="font-size:10px;color:var(--c-muted);letter-spacing:2px;"></span>
+  <a href="#" id="back-link" class="tb-back">← BACK TO MAP</a>
+</div>
+
+<div id="map"></div>
+
+<div id="ctrl-panel">
+  <div class="ctrl-title">3D CONTROLS</div>
+  <div class="ctrl-row">
+    <label>PITCH</label>
+    <input type="range" id="pitch" min="0" max="85" value="60" oninput="updatePitch(this.value)">
+    <span class="ctrl-val" id="pitch-val">60°</span>
+  </div>
+  <div class="ctrl-row">
+    <label>BEARING</label>
+    <input type="range" id="bearing" min="0" max="360" value="0" oninput="updateBearing(this.value)">
+    <span class="ctrl-val" id="bearing-val">0°</span>
+  </div>
+  <div class="ctrl-row">
+    <label>TERRAIN ×</label>
+    <input type="range" id="exag" min="1" max="3" step="0.1" value="1.5" oninput="updateExag(this.value)">
+    <span class="ctrl-val" id="exag-val">1.5×</span>
+  </div>
+  <div class="ctrl-row">
+    <label>BUILDINGS</label>
+    <input type="range" id="bldg-opacity" min="0" max="1" step="0.05" value="0.85" oninput="updateBldgOpacity(this.value)">
+    <span class="ctrl-val" id="bldg-val">85%</span>
+  </div>
+  <div style="font-size:8px;color:var(--c-dim);letter-spacing:1px;line-height:1.5;margin-top:4px;">
+    Drag: pan · Right-click+drag: rotate &amp; tilt · Scroll: zoom<br>
+    Building heights from OSM tags
+  </div>
+</div>
+
+<div id="status-bar">
+  <span class="sb-item">ZOOM: <b id="sb-zoom">—</b></span>
+  <span class="sb-item">PITCH: <b id="sb-pitch">—</b></span>
+  <span class="sb-item">BEARING: <b id="sb-bearing">—</b></span>
+  <span class="sb-item" style="margin-left:auto;">
+    MapLibre GL · OSM · AWS Terrain Tiles
+  </span>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script>
+'use strict';
+
+const params    = new URLSearchParams(location.search);
+const projectId = params.get('project');
+const lat       = parseFloat(params.get('lat'))  || 48.8566;
+const lng       = parseFloat(params.get('lng'))  || 2.3522;
+const zoom      = parseFloat(params.get('zoom')) || 15;
+
+// Back link preserves project
+document.getElementById('back-link').href = projectId ? `app-map.html?project=${projectId}` : 'index.html';
+
+// Try to fetch project name (ignore auth errors — 3D is read-only)
+if (projectId) {
+  fetch(`/api/projects/${projectId}`, { credentials:'include' })
+    .then(r => r.ok ? r.json() : null)
+    .then(p => { if (p?.name) document.getElementById('project-name').textContent = p.name; })
+    .catch(() => {});
+}
+
+// ── Map style (OSM raster tiles + hillshade + 3D buildings from OSM Vector) ─
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      // Base: OSM raster
+      'osm': {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '© OpenStreetMap'
+      },
+      // AWS Terrain Tiles (Mapzen terrarium) — provides DEM
+      'terrain-dem': {
+        type: 'raster-dem',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        encoding: 'terrarium',
+        maxzoom: 15,
+      },
+      // OSM Vector Tiles for building polygons (via openfreemap.org — free, no key)
+      'osm-vector': {
+        type: 'vector',
+        tiles: ['https://tiles.openfreemap.org/planet/20250128_001001_pt/{z}/{x}/{y}.pbf'],
+        minzoom: 0,
+        maxzoom: 14,
+      },
+    },
+    layers: [
+      { id: 'osm', type: 'raster', source: 'osm' },
+      // Hillshade overlay from DEM
+      { id: 'hillshade', type: 'hillshade', source: 'terrain-dem',
+        paint: { 'hillshade-shadow-color': '#000', 'hillshade-highlight-color': '#fff', 'hillshade-exaggeration': 0.45 } },
+      // 3D buildings from OSM vector tiles
+      {
+        id: 'buildings-3d', type: 'fill-extrusion', source: 'osm-vector',
+        'source-layer': 'building', minzoom: 14,
+        paint: {
+          'fill-extrusion-color': ['case',
+            ['>', ['coalesce', ['get', 'render_height'], 10], 50], '#7c3aed',
+            ['>', ['coalesce', ['get', 'render_height'], 10], 20], '#8b5cf6',
+            '#64748b'
+          ],
+          'fill-extrusion-height':
+            ['coalesce', ['get', 'render_height'], ['*', ['coalesce', ['get', 'levels'], 3], 3]],
+          'fill-extrusion-base':
+            ['coalesce', ['get', 'render_min_height'], 0],
+          'fill-extrusion-opacity': 0.85,
+        },
+      }
+    ],
+    terrain: { source: 'terrain-dem', exaggeration: 1.5 },
+    sky: {
+      'sky-color': '#0a0e1a', 'sky-horizon-blend': 0.6,
+      'horizon-color': '#1e2a3a', 'horizon-fog-blend': 0.7,
+      'fog-color': '#050810', 'fog-ground-blend': 0.3,
+    }
+  },
+  center: [lng, lat],
+  zoom: zoom,
+  pitch: 60,
+  bearing: 0,
+  attributionControl: true,
+});
+
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+// ── Controls ─────────────────────────────────────────────────────
+function updatePitch(v)   { map.setPitch(parseFloat(v));   document.getElementById('pitch-val').textContent   = v + '°'; }
+function updateBearing(v) { map.setBearing(parseFloat(v)); document.getElementById('bearing-val').textContent = v + '°'; }
+function updateExag(v) {
+  map.setTerrain({ source: 'terrain-dem', exaggeration: parseFloat(v) });
+  document.getElementById('exag-val').textContent = parseFloat(v).toFixed(1) + '×';
+}
+function updateBldgOpacity(v) {
+  if (map.getLayer('buildings-3d')) map.setPaintProperty('buildings-3d', 'fill-extrusion-opacity', parseFloat(v));
+  document.getElementById('bldg-val').textContent = Math.round(v * 100) + '%';
+}
+
+// ── Status bar live updates ──────────────────────────────────────
+function updateStatus() {
+  document.getElementById('sb-zoom').textContent    = map.getZoom().toFixed(1);
+  document.getElementById('sb-pitch').textContent   = Math.round(map.getPitch()) + '°';
+  document.getElementById('sb-bearing').textContent = Math.round(map.getBearing()) + '°';
+  // Sync sliders back to map state (for drag-rotate)
+  document.getElementById('pitch').value   = Math.round(map.getPitch());
+  document.getElementById('pitch-val').textContent = Math.round(map.getPitch()) + '°';
+  document.getElementById('bearing').value = Math.round(map.getBearing());
+  document.getElementById('bearing-val').textContent = Math.round(map.getBearing()) + '°';
+}
+
+map.on('load', updateStatus);
+map.on('move', updateStatus);
+
+map.on('error', (e) => {
+  // Silently swallow vector tile errors — layer may not have building data everywhere
+  if (e.error?.message?.includes('vector') || e.error?.message?.includes('tile')) return;
+  console.warn('[3D]', e.error?.message || e);
+});
+</script>
+</body>
+</html>

@@ -36,6 +36,8 @@ const infraGroups = {};
 const infraVisible = {};
 const infraLoaded  = {};
 
+const INFRA_PREFS_KEY = 'aegis-infra-';
+
 function initInfraLayers(map) {
   for (const type of Object.keys(INFRA_STYLES)) {
     infraGroups[type] = L.layerGroup();
@@ -45,18 +47,39 @@ function initInfraLayers(map) {
   window._infraMap = map;
 }
 
+// ── Restore persisted toggle state (called after project loads) ───
+async function restoreInfraLayers(projectId) {
+  const key = INFRA_PREFS_KEY + projectId;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(key) || '{}'); } catch {}
+  for (const type of Object.keys(INFRA_STYLES)) {
+    if (saved[type]) {
+      const btn = document.getElementById(`infra-btn-${type}`);
+      await toggleInfraLayer(type, btn, true); // silent restore
+    }
+  }
+}
+
+function saveInfraPrefs(projectId) {
+  const key = INFRA_PREFS_KEY + projectId;
+  const state = {};
+  for (const type of Object.keys(INFRA_STYLES)) state[type] = infraVisible[type];
+  try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
+}
+
 // ── Toggle a layer on/off ────────────────────────────────────────
-async function toggleInfraLayer(type, btn) {
+async function toggleInfraLayer(type, btn, silent = false) {
   const map = window._infraMap;
   if (!map) return;
 
-  infraVisible[type] = !infraVisible[type];
+  if (!silent) infraVisible[type] = !infraVisible[type];
 
   // Update button state
   if (btn) btn.classList.toggle('infra-btn--active', infraVisible[type]);
 
   if (!infraVisible[type]) {
     map.removeLayer(infraGroups[type]);
+    if (!silent) saveInfraPrefs(window.AEGIS_PROJECT?.id);
     return;
   }
 
@@ -76,6 +99,7 @@ async function toggleInfraLayer(type, btn) {
   }
 
   infraGroups[type].addTo(map);
+  if (!silent) saveInfraPrefs(window.AEGIS_PROJECT?.id);
 }
 
 function setInfraBtnLoading(btn, loading) {

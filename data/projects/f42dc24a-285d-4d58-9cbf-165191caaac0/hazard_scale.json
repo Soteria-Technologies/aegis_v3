@@ -1,0 +1,20 @@
+{
+  "hospital": "critical",
+  "clinic": "critical",
+  "fire_station": "medium",
+  "police": "low",
+  "school": "high",
+  "gymnasium": "medium",
+  "shelter": "medium",
+  "power_plant": "high",
+  "substation": "medium",
+  "chemical_plant": "hazardous",
+  "petroleum": "hazardous",
+  "water": "medium",
+  "waste": "hazardous",
+  "airport": "low",
+  "train_station": "low",
+  "communication": "medium",
+  "military": "hazardous",
+  "storage_tank": "hazardous"
+}

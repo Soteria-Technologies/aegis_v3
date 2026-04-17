@@ -1,9 +1,10 @@
 /**
  * AEGIS V3 — Backend Server
- * Express · SQLite per-project · Auth · OSM · Overpass
+ * Express · SQLite per-project · Auth · OSM · Overpass · WebSocket log
  */
 
 const express  = require('express');
+const http     = require('http');
 const cors     = require('cors');
 const axios    = require('axios');
 const path     = require('path');
@@ -20,8 +21,77 @@ const {
   registerAuthRoutes,
 } = require('./server-auth');
 
-const app  = express();
-const PORT = process.env.PORT || 3001;
+const app    = express();
+const server = http.createServer(app);  // needed for WebSocket
+const PORT   = process.env.PORT || 3001;
+
+// ── WebSocket log stream ─────────────────────────────────────────
+// Admin-only read-only terminal mirror
+let wsClients = new Set();
+const logBuffer = [];  // rolling 300-line buffer for new connections
+const MAX_LOG_BUFFER = 300;
+
+function broadcastLog(line) {
+  logBuffer.push(line);
+  if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
+  const msg = JSON.stringify({ type: 'log', line });
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+}
+
+// Strip ANSI escape codes for clean browser display
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+// Intercept console.log so we capture logStatus output
+const _origLog = console.log.bind(console);
+console.log = (...args) => {
+  _origLog(...args);
+  broadcastLog(stripAnsi(args.map(String).join(' ')));
+};
+const _origErr = console.error.bind(console);
+console.error = (...args) => {
+  _origErr(...args);
+  broadcastLog('[ERR] ' + stripAnsi(args.map(String).join(' ')));
+};
+
+// Attach WebSocket server lazily (after jwt secret is available)
+function attachWebSocket() {
+  try {
+    const { WebSocketServer } = require('ws');
+    const jwt      = require('jsonwebtoken');
+    const cookie   = require('cookie');
+
+    const wss = new WebSocketServer({ server, path: '/ws/logs' });
+
+    wss.on('connection', (ws, req) => {
+      // Authenticate via JWT cookie
+      try {
+        const cookies = cookie.parse(req.headers.cookie || '');
+        const token   = cookies['aegis_token'];
+        if (!token) { ws.close(4001, 'Unauthorized'); return; }
+        const user = jwt.verify(token, process.env.JWT_SECRET);
+        if (user.role !== 'admin') { ws.close(4003, 'Admin only'); return; }
+      } catch {
+        ws.close(4001, 'Invalid token');
+        return;
+      }
+
+      wsClients.add(ws);
+
+      // Send buffer of recent lines to new connection
+      ws.send(JSON.stringify({ type: 'history', lines: logBuffer }));
+
+      ws.on('close', () => wsClients.delete(ws));
+      ws.on('error', () => wsClients.delete(ws));
+      // Read-only: ignore any incoming messages from client
+    });
+  } catch (e) {
+    console.error('[WS] WebSocket not available:', e.message);
+  }
+}
 
 // ── Data dirs ────────────────────────────────────────────────────
 const DATA_DIR       = path.join(__dirname, 'data');
@@ -808,18 +878,33 @@ app.post('/api/detect-facilities', requireAuth, async (req, res) => {
 // 429 handling: Retry-After header + endpoint rotation.
 // ════════════════════════════════════════════════════════════════
 
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',          // primary, most stable
-  'https://overpass.kumi.systems/api/interpreter',    // community, reliable
-  'https://overpass.private.coffee/api/interpreter',  // newer community endpoint
-];
+// ── Overpass endpoint config ──────────────────────────────────
+// If OVERPASS_PROXY is set (e.g. a Cloudflare Worker URL), ALL queries
+// go through it — bypasses cloud-provider IP blocks on Render free tier.
+const OVERPASS_PROXY = process.env.OVERPASS_PROXY || null;
+
+const OVERPASS_ENDPOINTS = OVERPASS_PROXY
+  ? [OVERPASS_PROXY]  // single proxy endpoint — no rotation needed
+  : [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.private.coffee/api/interpreter',
+    ];
+
 // Track which endpoints are healthy this session
 const endpointHealth = OVERPASS_ENDPOINTS.map(() => ({ failures: 0, lastFailure: 0 }));
 let overpassEndpointIdx = 0;
 
+// Errors that indicate the host/network rejected us (Render free tier symptoms)
+const TLS_ERRORS = new Set([
+  'ECONNABORTED','ECONNREFUSED','ECONNRESET','ETIMEDOUT',
+  'ERR_BAD_RESPONSE','UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID','SOCKET_HANG_UP',
+]);
+
 const projectScans = new Map(); // projectId → scan state object
 
-// ── Grid helpers (ported from client scan-engine.js) ─────────────
+// ── Grid helpers ──────────────────────────────────────────────
 function _raycast(point, ring) {
   const [x, y] = point; let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -876,16 +961,13 @@ function batchCells(cells, size = 4) {
   return batches;
 }
 
-// ── Overpass batch query with 429 backoff & health-aware endpoint rotation ────
+// ── Overpass query — proxy-aware, health-tracked ──────────────
 async function queryOverpassBatch(bbox, attempt = 0) {
-  // Pick healthiest endpoint (fewest recent failures)
+
   function pickEndpoint() {
     const now = Date.now();
-    // Reset failure count after 10 minutes
     endpointHealth.forEach(h => { if (now - h.lastFailure > 600000) h.failures = 0; });
-    // Pick the one with fewest failures, starting from current idx
-    let best = overpassEndpointIdx;
-    let bestFails = endpointHealth[best].failures;
+    let best = overpassEndpointIdx, bestFails = endpointHealth[best].failures;
     for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
       const idx = (overpassEndpointIdx + i) % OVERPASS_ENDPOINTS.length;
       if (endpointHealth[idx].failures < bestFails) { best = idx; bestFails = endpointHealth[idx].failures; }
@@ -922,36 +1004,34 @@ out center;`;
   try {
     const r = await axios.post(ep, query, {
       headers: { 'Content-Type': 'text/plain', 'User-Agent': 'AEGIS-V3/1.0' },
-      timeout: 40000
+      timeout: 45000,
+      maxRedirects: 3,
     });
-    // Success — reset failure count for this endpoint
     endpointHealth[epIdx].failures = 0;
     return r.data.elements || [];
+
   } catch (err) {
-    const status = err.response?.status;
+    const status  = err.response?.status;
+    const errCode = err.code || err.response?.code || 'UNKNOWN';
     endpointHealth[epIdx].failures++;
     endpointHealth[epIdx].lastFailure = Date.now();
 
-    if (status === 429) {
-      // Rotate to next endpoint
+    // 429 — rate limited, rotate + wait
+    if (status === 429 && attempt < 4) {
       overpassEndpointIdx = (epIdx + 1) % OVERPASS_ENDPOINTS.length;
-      const retryAfter = parseInt(err.response?.headers?.['retry-after'] || '45');
-      const waitMs = (retryAfter + 10) * 1000;
-      logStatus('warning', `Overpass 429 on ${ep.split('/')[2]} — waiting ${retryAfter + 10}s, switching to ${OVERPASS_ENDPOINTS[overpassEndpointIdx].split('/')[2]}`);
-      if (attempt < 4) {
-        await new Promise(r => setTimeout(r, waitMs));
-        return queryOverpassBatch(bbox, attempt + 1);
-      }
+      const wait = (parseInt(err.response?.headers?.['retry-after'] || '45') + 10) * 1000;
+      logStatus('warning', `Overpass 429 on ${ep.split('/')[2]} — waiting ${Math.round(wait/1000)}s`);
+      await new Promise(r => setTimeout(r, wait));
+      return queryOverpassBatch(bbox, attempt + 1);
     }
 
-    if (status === 504 || err.code === 'ECONNREFUSED' || err.code === 'ECONNABORTED') {
-      // Hard failure on this endpoint — immediately try next
+    // TLS/network failure — rotate immediately, short delay
+    if ((status === 504 || TLS_ERRORS.has(errCode)) && attempt < 3) {
       overpassEndpointIdx = (epIdx + 1) % OVERPASS_ENDPOINTS.length;
-      logStatus('warning', `Overpass ${err.code || status} on ${ep.split('/')[2]} — failing over to ${OVERPASS_ENDPOINTS[overpassEndpointIdx].split('/')[2]}`);
-      if (attempt < 3) {
-        await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
-        return queryOverpassBatch(bbox, attempt + 1);
-      }
+      const nextEp = OVERPASS_ENDPOINTS[overpassEndpointIdx];
+      logStatus('warning', `Overpass ${errCode} on ${ep.split('/')[2]} — failing over to ${nextEp.split('/')[2]}`);
+      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      return queryOverpassBatch(bbox, attempt + 1);
     }
 
     logStatus('warning', `Overpass giving up after ${attempt + 1} attempts: ${err.message}`);
@@ -1064,8 +1144,9 @@ app.post('/api/projects/:id/scan/start', requireAuth, async (req, res) => {
   }
 
   // Generate grid and batches
+  const batchSize = Math.min(Math.max(parseInt(req.body.batchSize) || 4, 1), 16);
   const cells   = generateScanGrid(project.area.geojson);
-  const batches = batchCells(cells, 4);
+  const batches = batchCells(cells, batchSize);
 
   const scan = {
     projectId, cells, batches,
@@ -1102,7 +1183,8 @@ app.post('/api/projects/:id/scan/preview', requireAuth, async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (!project.area?.geojson) return res.status(400).json({ error: 'No area' });
     const cells = generateScanGrid(project.area.geojson);
-    res.json({ cells, batches: Math.ceil(cells.length / 4) });
+    const batchSize = Math.min(Math.max(parseInt(req.body.batchSize) || 4, 1), 16);
+    res.json({ cells, batches: Math.ceil(cells.length / batchSize) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1299,18 +1381,35 @@ app.get('/api/projects/:id/infrastructure/:type', requireAuth, async (req, res) 
     const project = await readProject(id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const cacheFile = path.join(PROJECTS_DIR, id, `infra_${type}.json`);
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
 
-    // Return cached version if exists
-    if (fs.existsSync(cacheFile)) {
-      const cached = JSON.parse(await fsp.readFile(cacheFile, 'utf8'));
-      logStatus('info', `[INFRA] Serving cached ${type} for ${id.slice(0,8)}`);
-      return res.json(cached);
+    // Return from DB if present
+    const count = await db.countMapFeatures('infrastructure', type);
+    if (count > 0) {
+      const geojson = await db.getMapFeatures('infrastructure', type);
+      logStatus('info', `[INFRA] Serving ${type} from DB (${count} features) for ${id.slice(0,8)}`);
+      await db.close().catch(() => {});
+      return res.json(geojson);
     }
 
-    // Compute bounding box from project area GeoJSON
+    // Legacy JSON cache — auto-migrate if found
+    const legacyFile = path.join(PROJECTS_DIR, id, `infra_${type}.json`);
+    if (fs.existsSync(legacyFile)) {
+      try {
+        const legacy = JSON.parse(await fsp.readFile(legacyFile, 'utf8'));
+        if (legacy?.features?.length) {
+          await db.upsertMapFeatures('infrastructure', type, legacy.features);
+          await fsp.unlink(legacyFile).catch(() => {});
+          logStatus('success', `[INFRA] Migrated ${legacy.features.length} ${type} features from JSON → DB`);
+          await db.close().catch(() => {});
+          return res.json(legacy);
+        }
+      } catch { /* fall through to Overpass */ }
+    }
+
     const bbox = infraBbox(project.area?.geojson);
-    if (!bbox) return res.status(400).json({ error: 'No project area defined' });
+    if (!bbox) { await db.close().catch(()=>{}); return res.status(400).json({ error: 'No project area defined' }); }
     const { south, north, west, east } = bbox;
     const bb = `${south},${west},${north},${east}`;
 
@@ -1326,29 +1425,36 @@ app.get('/api/projects/:id/infrastructure/:type', requireAuth, async (req, res) 
     const elements = ovResp.data.elements || [];
     const geojson = infraElementsToGeoJSON(elements, type);
 
-    // Cache to disk
-    await fsp.writeFile(cacheFile, JSON.stringify(geojson), 'utf8');
-    logStatus('success', `[INFRA] ${type}: ${geojson.features.length} features cached for ${id.slice(0,8)}`);
+    // Persist to DB instead of JSON file
+    await db.upsertMapFeatures('infrastructure', type, geojson.features);
+    logStatus('success', `[INFRA] ${type}: ${geojson.features.length} features stored in DB for ${id.slice(0,8)}`);
+    await db.close().catch(() => {});
 
     res.json(geojson);
   } catch (err) {
     logStatus('error', `[INFRA] ${type} fetch error: ${err.message}`);
-    // Return empty rather than crashing client
     res.json({ type: 'FeatureCollection', features: [] });
   }
 });
 
 /**
  * DELETE /api/projects/:id/infrastructure/:type/cache
- * Clears the cache file so the next GET re-fetches from Overpass.
+ * Clears DB rows and any legacy JSON cache file.
  */
 app.delete('/api/projects/:id/infrastructure/:type/cache', requireAuth, async (req, res) => {
   const { id, type } = req.params;
-  const cacheFile = path.join(PROJECTS_DIR, id, `infra_${type}.json`);
   try {
-    if (fs.existsSync(cacheFile)) await fsp.unlink(cacheFile);
-    logStatus('info', `[INFRA] Cache cleared: ${type} for ${id.slice(0,8)}`);
-    res.json({ cleared: true });
+    const project = await readProject(id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const removed = await db.clearMapFeatures('infrastructure', type);
+    await db.close().catch(() => {});
+    // Also remove any legacy JSON file
+    const legacyFile = path.join(PROJECTS_DIR, id, `infra_${type}.json`);
+    if (fs.existsSync(legacyFile)) { try { await fsp.unlink(legacyFile); } catch {} }
+    logStatus('info', `[INFRA] Cache cleared: ${type} (${removed} rows) for ${id.slice(0,8)}`);
+    res.json({ cleared: true, removed });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1405,6 +1511,447 @@ function infraBbox(geojson) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// NATURAL FEATURE LAYER ROUTES (rivers via Overpass cache)
+// ════════════════════════════════════════════════════════════════
+
+// Query includes rivers (lines), canals, streams, AND water bodies (polygons)
+const RIVERS_QUERY = (bb) => `[out:json][timeout:55];
+(
+  way["waterway"~"^(river|canal|stream|drain)"](${bb});
+  relation["waterway"="river"](${bb});
+  way["natural"="water"](${bb});
+  relation["natural"="water"](${bb});
+  way["water"~"^(lake|reservoir|pond|lagoon|basin)"](${bb});
+);
+out geom;`;
+
+app.get('/api/projects/:id/natural/rivers', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+
+    // Return from DB if present
+    const count = await db.countMapFeatures('natural', 'rivers');
+    if (count > 0) {
+      const geojson = await db.getMapFeatures('natural', 'rivers');
+      await db.close().catch(() => {});
+      return res.json(geojson);
+    }
+
+    // Legacy JSON migration
+    const legacyFile = path.join(PROJECTS_DIR, req.params.id, 'natural_rivers.json');
+    if (fs.existsSync(legacyFile)) {
+      try {
+        const legacy = JSON.parse(await fsp.readFile(legacyFile, 'utf8'));
+        if (legacy?.features?.length) {
+          await db.upsertMapFeatures('natural', 'rivers', legacy.features);
+          await fsp.unlink(legacyFile).catch(() => {});
+          logStatus('success', `[NATURAL] Migrated ${legacy.features.length} rivers JSON → DB`);
+          await db.close().catch(() => {});
+          return res.json(legacy);
+        }
+      } catch { /* fall through */ }
+    }
+
+    const bbox = infraBbox(project.area?.geojson);
+    if (!bbox) { await db.close().catch(()=>{}); return res.status(400).json({ error: 'No project area' }); }
+    const bb   = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+
+    logStatus('info', `[NATURAL] Fetching rivers/water bodies for ${req.params.id.slice(0,8)}`);
+    const ovResp = await axios.post(
+      OVERPASS_ENDPOINTS[overpassEndpointIdx % OVERPASS_ENDPOINTS.length],
+      RIVERS_QUERY(bb),
+      { headers: { 'Content-Type':'text/plain', 'User-Agent':'AEGIS-V3/1.0' }, timeout: 60000 }
+    );
+
+    const geojson = waterElementsToGeoJSON(ovResp.data.elements || []);
+    await db.upsertMapFeatures('natural', 'rivers', geojson.features);
+    logStatus('success', `[NATURAL] Rivers/water: ${geojson.features.length} features stored in DB`);
+    await db.close().catch(() => {});
+    res.json(geojson);
+  } catch (err) {
+    logStatus('error', `[NATURAL] Rivers: ${err.message}`);
+    res.json({ type:'FeatureCollection', features:[] });
+  }
+});
+
+app.delete('/api/projects/:id/natural/rivers/cache', requireAuth, async (req, res) => {
+  try {
+    const project = await readProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.clearMapFeatures('natural', 'rivers');
+    await db.close().catch(() => {});
+    const legacy = path.join(PROJECTS_DIR, req.params.id, 'natural_rivers.json');
+    if (fs.existsSync(legacy)) { try { await fsp.unlink(legacy); } catch {} }
+    res.json({ cleared: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Convert OSM way/relation → GeoJSON, handling BOTH lines and polygons ───
+function waterElementsToGeoJSON(elements) {
+  const features = [];
+  for (const el of elements) {
+    const geom = el.geometry;
+    if (!geom?.length) continue;
+
+    const coords = geom.map(n => [n.lon, n.lat]);
+    const isClosed = coords.length >= 4 &&
+      coords[0][0] === coords[coords.length-1][0] &&
+      coords[0][1] === coords[coords.length-1][1];
+    const tags = el.tags || {};
+    const isWaterBody = tags.natural === 'water' || tags.water;
+
+    if (isWaterBody && isClosed) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [coords] },
+        properties: {
+          osm_id: String(el.id),
+          name: tags.name || null,
+          water: tags.water || 'lake',
+          kind: 'water_body',
+        }
+      });
+    } else {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {
+          osm_id: String(el.id),
+          name: tags.name || null,
+          waterway: tags.waterway || 'river',
+          kind: 'waterway',
+        }
+      });
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// ════════════════════════════════════════════════════════════════
+// AERIAL IMAGERY PROXY (OAM primary, NASA GIBS fallback)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/aerial/search?lat=&lng=&radius=
+ * Queries OpenAerialMap via the Node server (bypasses browser CORS + uses
+ * proper User-Agent). Returns most-recent imagery metadata including a
+ * thumbnail URL. Falls back to NASA GIBS snapshot on failure.
+ */
+app.get('/api/aerial/search', requireAuth, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  const r   = Math.min(Math.max(parseFloat(req.query.radius) || 0.02, 0.005), 0.2);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({ error: 'lat and lng required' });
+  }
+
+  const bbox = `${lng - r},${lat - r},${lng + r},${lat + r}`;
+
+  // ── Try OpenAerialMap first ──────────────────────────────────
+  try {
+    const oam = await axios.get('https://api.openaerialmap.org/meta', {
+      params: { bbox, limit: 10, sortby: 'acquisition_start', sortorder: 'desc' },
+      headers: { 'User-Agent': 'AEGIS-V3/1.0 (disaster-risk-reduction)' },
+      timeout: 12000,
+      validateStatus: s => s < 500,
+    });
+
+    if (oam.status === 200 && oam.data?.results?.length) {
+      const best = oam.data.results.find(r => r.thumbnail || r.properties?.thumbnail) || oam.data.results[0];
+      logStatus('info', `[AERIAL] OAM hit: ${oam.data.results.length} results for ${lat.toFixed(4)},${lng.toFixed(4)}`);
+      return res.json({
+        source: 'oam',
+        results: oam.data.results.slice(0, 5),
+        best: {
+          title:     best.title || best.properties?.title || 'OAM imagery',
+          thumbnail: best.thumbnail || best.properties?.thumbnail,
+          tms:       best.tms,
+          acquisition_start: best.acquisition_start,
+          provider:  best.provider || best.uploaded_at,
+          gsd:       best.gsd,
+          bbox:      best.bbox,
+        }
+      });
+    }
+    logStatus('warning', `[AERIAL] OAM returned ${oam.status} or empty — falling back to GIBS`);
+  } catch (err) {
+    logStatus('warning', `[AERIAL] OAM failed: ${err.message} — falling back to GIBS`);
+  }
+
+  // ── NASA GIBS fallback ───────────────────────────────────────
+  // Build a static snapshot URL using the latest available MODIS date
+  const y = new Date().getUTCFullYear();
+  const m = String(new Date().getUTCMonth() + 1).padStart(2, '0');
+  const d = String(new Date().getUTCDate() - 1).padStart(2, '0'); // yesterday: GIBS is 1 day behind
+  const date = `${y}-${m}-${d}`;
+  const snapshot =
+    `https://wvs.earthdata.nasa.gov/api/v1/snapshot` +
+    `?REQUEST=GetSnapshot&TIME=${date}` +
+    `&BBOX=${lat - r},${lng - r},${lat + r},${lng + r}` +
+    `&CRS=EPSG:4326&LAYERS=MODIS_Terra_CorrectedReflectance_TrueColor` +
+    `&FORMAT=image/jpeg&WIDTH=512&HEIGHT=512`;
+
+  res.json({
+    source: 'gibs',
+    results: [],
+    best: {
+      title:     `NASA MODIS Terra · ${date}`,
+      thumbnail: snapshot,
+      acquisition_start: date,
+      provider:  'NASA GIBS',
+      gsd:       250,
+    }
+  });
+});
+
+/**
+ * GET /api/aerial/thumbnail?url=<encoded>
+ * Transparent image proxy — serves OAM/GIBS images through our domain to
+ * defeat browser CORS and mixed-content blocks. Whitelists trusted hosts only.
+ */
+app.get('/api/aerial/thumbnail', requireAuth, async (req, res) => {
+  const target = req.query.url;
+  if (!target) return res.status(400).json({ error: 'url required' });
+
+  const ALLOWED_HOSTS = [
+    'openaerialmap.org', 'oin-hotosm.s3.amazonaws.com',
+    'gibs.earthdata.nasa.gov', 'wvs.earthdata.nasa.gov',
+    'modis.gsfc.nasa.gov', 'worldview.earthdata.nasa.gov',
+  ];
+  try {
+    const u = new URL(target);
+    if (!ALLOWED_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))) {
+      return res.status(403).json({ error: 'Host not allowed' });
+    }
+    const r = await axios.get(target, {
+      responseType: 'arraybuffer',
+      timeout: 20000,
+      headers: { 'User-Agent': 'AEGIS-V3/1.0' },
+    });
+    res.set('Content-Type',  r.headers['content-type'] || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.send(r.data);
+  } catch (err) {
+    res.status(502).json({ error: 'Thumbnail fetch failed', detail: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// CUSTOM GIS LAYERS — user file uploads
+// ════════════════════════════════════════════════════════════════
+
+const multer = require('multer');
+const ALLOWED_LAYER_EXTS = ['.geojson', '.json', '.kml', '.tif', '.tiff', '.png', '.jpg', '.jpeg'];
+const MAX_LAYER_SIZE     = 50 * 1024 * 1024; // 50 MB
+
+const layerUpload = multer({
+  limits: { fileSize: MAX_LAYER_SIZE },
+  storage: multer.diskStorage({
+    destination: async (req, file, cb) => {
+      const dir = path.join(PROJECTS_DIR, req.params.id, 'layers');
+      try { await fsp.mkdir(dir, { recursive: true }); cb(null, dir); }
+      catch (err) { cb(err); }
+    },
+    filename: (req, file, cb) => {
+      const id   = uuidv4();
+      const ext  = path.extname(file.originalname).toLowerCase();
+      cb(null, `${id}${ext}`);
+    },
+  }),
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_LAYER_EXTS.includes(ext)) {
+      return cb(new Error(`File type ${ext} not allowed. Supported: ${ALLOWED_LAYER_EXTS.join(', ')}`));
+    }
+    cb(null, true);
+  },
+});
+
+/** POST /api/projects/:id/layers — upload a custom layer */
+app.post('/api/projects/:id/layers', requireAuth, (req, res) => {
+  layerUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    try {
+      const project = await verifyOwnership(req, res);
+      if (!project) return;
+
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const format = ext.replace('.', '');
+      const layerId = path.basename(req.file.filename, ext);
+
+      // For vector files, parse and compute bounds + feature count
+      let bounds = null, featureCount = 0;
+      try {
+        if (format === 'geojson' || format === 'json') {
+          const text = await fsp.readFile(req.file.path, 'utf8');
+          const gj = JSON.parse(text);
+          const feats = gj.type === 'FeatureCollection' ? gj.features : (gj.type === 'Feature' ? [gj] : []);
+          featureCount = feats.length;
+          bounds = _computeBounds(feats);
+        } else if (format === 'kml') {
+          // Crude bbox extraction from KML <coordinates> blocks
+          const text = await fsp.readFile(req.file.path, 'utf8');
+          bounds = _kmlBounds(text);
+        }
+      } catch (parseErr) {
+        logStatus('warning', `[LAYER] Parse warning for ${req.file.originalname}: ${parseErr.message}`);
+      }
+
+      const db = new FacilityDatabaseManager(project.db_path);
+      await db.initialize();
+      await db.addCustomLayer({
+        id:           layerId,
+        name:         req.body.name || req.file.originalname,
+        file_name:    req.file.originalname,
+        file_format:  format,
+        file_size:    req.file.size,
+        stored_path:  req.file.path,
+        is_visible:   true,
+        z_order:      parseInt(req.body.z_order) || 0,
+        opacity:      parseFloat(req.body.opacity) || 1.0,
+        style:        {},
+        bounds,
+        feature_count: featureCount,
+        uploaded_by:  req.user.username,
+      });
+      await db.close().catch(() => {});
+
+      logStatus('success', `[LAYER] ${req.user.username} uploaded ${format} "${req.file.originalname}" (${featureCount} features)`);
+      res.status(201).json({
+        id: layerId, name: req.body.name || req.file.originalname,
+        file_format: format, feature_count: featureCount, bounds,
+      });
+    } catch (err) {
+      // Clean up uploaded file on error
+      if (req.file?.path) { try { await fsp.unlink(req.file.path); } catch {} }
+      logStatus('error', `[LAYER] Upload failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+});
+
+/** GET /api/projects/:id/layers — list custom layers */
+app.get('/api/projects/:id/layers', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const layers = await db.listCustomLayers();
+    await db.close().catch(() => {});
+    // Don't expose absolute file paths to the client
+    res.json(layers.map(l => ({ ...l, stored_path: undefined })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/projects/:id/layers/:layerId/data — fetch a layer's data for rendering */
+app.get('/api/projects/:id/layers/:layerId/data', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const layers = await db.listCustomLayers();
+    await db.close().catch(() => {});
+    const layer = layers.find(l => l.id === req.params.layerId);
+    if (!layer) return res.status(404).json({ error: 'Layer not found' });
+    if (!fs.existsSync(layer.stored_path)) return res.status(404).json({ error: 'Layer file missing on disk' });
+
+    // Vector formats: parse and return GeoJSON
+    if (['geojson','json'].includes(layer.file_format)) {
+      return res.type('application/geo+json').sendFile(path.resolve(layer.stored_path));
+    }
+    if (layer.file_format === 'kml') {
+      return res.type('application/vnd.google-earth.kml+xml').sendFile(path.resolve(layer.stored_path));
+    }
+    // Raster: stream as-is with correct MIME
+    const mime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
+                   tif:'image/tiff', tiff:'image/tiff' }[layer.file_format] || 'application/octet-stream';
+    res.type(mime).sendFile(path.resolve(layer.stored_path));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PATCH /api/projects/:id/layers/:layerId — update style/visibility/z-order */
+app.patch('/api/projects/:id/layers/:layerId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.updateCustomLayer(req.params.layerId, req.body || {});
+    await db.close().catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/projects/:id/layers/:layerId */
+app.delete('/api/projects/:id/layers/:layerId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const storedPath = await db.deleteCustomLayer(req.params.layerId);
+    await db.close().catch(() => {});
+    if (storedPath && fs.existsSync(storedPath)) {
+      try { await fsp.unlink(storedPath); } catch {}
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Helpers for layer parsing ───────────────────────────────────
+function _computeBounds(features) {
+  let s=90, n=-90, w=180, e=-180;
+  function walk(c) {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === 'number') {
+      w = Math.min(w, c[0]); e = Math.max(e, c[0]);
+      s = Math.min(s, c[1]); n = Math.max(n, c[1]);
+    } else c.forEach(walk);
+  }
+  for (const f of features) if (f.geometry?.coordinates) walk(f.geometry.coordinates);
+  return isFinite(s) ? [[s, w], [n, e]] : null;
+}
+
+function _kmlBounds(text) {
+  let s=90, n=-90, w=180, e=-180, matched=false;
+  const regex = /<coordinates>([^<]+)<\/coordinates>/g;
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    const coords = m[1].trim().split(/\s+/);
+    for (const coord of coords) {
+      const parts = coord.split(',').map(parseFloat);
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        matched = true;
+        w = Math.min(w, parts[0]); e = Math.max(e, parts[0]);
+        s = Math.min(s, parts[1]); n = Math.max(n, parts[1]);
+      }
+    }
+  }
+  return matched ? [[s, w], [n, e]] : null;
+}
+
+// ════════════════════════════════════════════════════════════════
 // HEALTH CHECK
 // ════════════════════════════════════════════════════════════════
 
@@ -1457,7 +2004,7 @@ function printBanner() {
 }
 
 // ── Start ─────────────────────────────────────────────────────────
-app.listen(PORT, async () => {
+server.listen(PORT, async () => {
   printBanner();
   await ensureDataDirs();
   try {
@@ -1466,15 +2013,15 @@ app.listen(PORT, async () => {
   } catch (err) {
     logStatus('error', `Users DB: ${err.message}`);
   }
-  // Validate JWT_SECRET early — crash with clear message if missing
   try {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
       logStatus('error', 'JWT_SECRET missing or too short!');
       logStatus('error', 'Run: node admin-cli.js generate-secret');
-      logStatus('error', 'Then add JWT_SECRET=<value> to your .env file');
       process.exit(1);
     }
     logStatus('success', 'JWT auth configured');
+    attachWebSocket();
+    logStatus('success', 'WebSocket log stream: ready (admin only at /ws/logs)');
   } catch (err) {
     logStatus('error', `Auth config: ${err.message}`);
     process.exit(1);

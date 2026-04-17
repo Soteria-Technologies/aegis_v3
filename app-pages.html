@@ -187,7 +187,20 @@
               </div>
               <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:10px;">
                 <div class="settings-row"><span class="settings-label">CELL SIZE</span><span class="settings-value">1 km²</span></div>
-                <div class="settings-row"><span class="settings-label">BATCH SIZE</span><span class="settings-value">4 cells / request</span></div>
+                <div class="settings-row">
+                  <span class="settings-label">BATCH SIZE</span>
+                  <div style="display:flex;flex-direction:column;gap:3px;flex:1;text-align:right;">
+                    <select class="settings-select" id="s-batch-size" style="font-size:9px;"
+                      onchange="saveBatchSize(this.value)">
+                      <option value="2">2 cells / request (slowest, safest)</option>
+                      <option value="4" selected>4 cells / request (default)</option>
+                      <option value="8">8 cells / request (faster)</option>
+                      <option value="12">12 cells / request (fast)</option>
+                      <option value="16">16 cells / request (fastest — may 429)</option>
+                    </select>
+                    <span style="font-size:7px;color:var(--c-dim);letter-spacing:1px;">Higher = faster but more Overpass 429 risk</span>
+                  </div>
+                </div>
                 <div class="settings-row"><span class="settings-label">GRID CELLS</span><span class="settings-value" id="s-grid-cells">—</span></div>
                 <div class="settings-row"><span class="settings-label">BATCHES</span><span class="settings-value" id="s-batches">—</span></div>
                 <div class="settings-row"><span class="settings-label">EST. DURATION</span><span class="settings-value" id="s-est-dur">—</span></div>
@@ -509,14 +522,34 @@ function fillSettingsPage(p) {
   const themeEl = document.getElementById('s-theme');
   const layerEl = document.getElementById('s-map-layer');
   const maskEl  = document.getElementById('setting-boundary-mask');
+  const batchEl = document.getElementById('s-batch-size');
   if (themeEl) themeEl.value = prefs.theme || 'default';
   if (layerEl) layerEl.value = prefs.layer || 'osm-default';
   if (maskEl)  maskEl.checked = prefs.boundaryMask !== false;
+  if (batchEl) batchEl.value  = String(prefs.scanBatchSize || 4);
 }
 
 function saveBoundaryMaskPref(val) {
   prefs.boundaryMask = val;
   savePrefs();
+}
+
+function saveBatchSize(val) {
+  prefs.scanBatchSize = parseInt(val) || 4;
+  savePrefs();
+  // Update preview estimate if cells already computed
+  const batchEl = document.getElementById('s-batches');
+  const cellEl  = document.getElementById('s-grid-cells');
+  if (cellEl && cellEl.textContent !== '—') {
+    const cells = parseInt(cellEl.textContent);
+    if (!isNaN(cells)) {
+      const batches  = Math.ceil(cells / prefs.scanBatchSize);
+      const estSecs  = Math.ceil(batches * 3.5);
+      batchEl.textContent = batches + ' batches';
+      const durEl = document.getElementById('s-est-dur');
+      if (durEl) durEl.textContent = Math.floor(estSecs/60) + 'm ' + (estSecs%60) + 's';
+    }
+  }
 }
 
 // ── Hazard Scale ──────────────────────────────────────────────
@@ -613,8 +646,8 @@ function resetHazardScale() {
 function previewGrid() {
   const p = window.AEGIS_PROJECT;
   if (!p?.area?.geojson) { alert('No area defined.'); return; }
-  // Call server to get grid preview (reuse scan status endpoint's cell list if available)
-  axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/scan/preview')
+  const batchSize = prefs.scanBatchSize || 4;
+  axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/scan/preview', { batchSize })
     .then(r => {
       const cells = r.data.cells || [];
       const batches = r.data.batches || 0;

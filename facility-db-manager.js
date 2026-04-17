@@ -149,6 +149,46 @@ class FacilityDatabaseManager {
         is_primary BOOLEAN DEFAULT 0,
         api_url TEXT,
         api_key TEXT
+      )`,
+      /**
+       * Unified map-feature storage — a single table for ALL geospatial
+       * elements: infrastructure (roads/rail/power), natural features
+       * (rivers/coastlines), and other layer types. Identified by the
+       * 'group' column. Supersedes the JSON cache files.
+       */
+      `CREATE TABLE IF NOT EXISTS map_features (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        feature_group TEXT NOT NULL,
+        feature_type  TEXT NOT NULL,
+        osm_id        TEXT,
+        name          TEXT,
+        geometry      TEXT NOT NULL,
+        properties    TEXT,
+        bbox_south    REAL, bbox_north REAL,
+        bbox_west     REAL, bbox_east  REAL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /**
+       * User-uploaded custom GIS layers (GeoJSON, KML, GeoTIFF, PNG/JPG).
+       * Actual file content lives in data/projects/{id}/layers/; this
+       * table tracks metadata and rendering parameters.
+       */
+      `CREATE TABLE IF NOT EXISTS custom_layers (
+        id             TEXT PRIMARY KEY,
+        name           TEXT NOT NULL,
+        file_name      TEXT NOT NULL,
+        file_format    TEXT NOT NULL,
+        file_size      INTEGER,
+        stored_path    TEXT NOT NULL,
+        is_visible     INTEGER DEFAULT 1,
+        z_order        INTEGER DEFAULT 0,
+        opacity        REAL DEFAULT 1.0,
+        style          TEXT,
+        bounds         TEXT,
+        feature_count  INTEGER,
+        uploaded_by    TEXT,
+        created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
       )`
     ];
 
@@ -191,7 +231,12 @@ class FacilityDatabaseManager {
       `CREATE INDEX IF NOT EXISTS idx_facility_status     ON facilities(status)`,
       `CREATE INDEX IF NOT EXISTS idx_inspection_facility ON inspections(facility_id)`,
       `CREATE INDEX IF NOT EXISTS idx_history_facility    ON facility_history(facility_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_risk_facility       ON risk_assessments(facility_id)`
+      `CREATE INDEX IF NOT EXISTS idx_risk_facility       ON risk_assessments(facility_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_mf_group            ON map_features(feature_group)`,
+      `CREATE INDEX IF NOT EXISTS idx_mf_group_type       ON map_features(feature_group, feature_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_mf_osm              ON map_features(osm_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_cl_visible          ON custom_layers(is_visible)`,
+      `CREATE INDEX IF NOT EXISTS idx_cl_zorder           ON custom_layers(z_order)`
     ];
 
     for (const stmt of indexes) {
@@ -542,6 +587,172 @@ class FacilityDatabaseManager {
   /**
    * Close database connection
    */
+  /* ============================================================
+   * MAP FEATURES — unified storage for infra + natural layers
+   * ============================================================ */
+
+  /**
+   * Bulk upsert features into map_features table.
+   * @param {string} group - 'infrastructure' | 'natural' | 'facilities' | 'other'
+   * @param {string} type  - e.g. 'roads', 'rivers', 'power'
+   * @param {Array}  features - GeoJSON features
+   */
+  async upsertMapFeatures(group, type, features) {
+    if (!features?.length) return 0;
+    return new Promise((resolve, reject) => {
+      this.db.serialize(() => {
+        this.db.run('BEGIN TRANSACTION');
+        // Clear existing of this group+type (simple replace strategy)
+        this.db.run(
+          'DELETE FROM map_features WHERE feature_group = ? AND feature_type = ?',
+          [group, type]
+        );
+        const stmt = this.db.prepare(`INSERT INTO map_features
+          (feature_group, feature_type, osm_id, name, geometry, properties,
+           bbox_south, bbox_north, bbox_west, bbox_east)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+        let inserted = 0;
+        for (const f of features) {
+          const geom = f.geometry;
+          if (!geom) continue;
+          const bbox = _bboxOfGeometry(geom);
+          stmt.run([
+            group, type,
+            f.properties?.osm_id || null,
+            f.properties?.name || null,
+            JSON.stringify(geom),
+            JSON.stringify(f.properties || {}),
+            bbox.south, bbox.north, bbox.west, bbox.east,
+          ], (err) => { if (!err) inserted++; });
+        }
+        stmt.finalize((err) => {
+          if (err) { this.db.run('ROLLBACK'); reject(err); return; }
+          this.db.run('COMMIT', (commitErr) => {
+            if (commitErr) reject(commitErr); else resolve(inserted);
+          });
+        });
+      });
+    });
+  }
+
+  /** Fetch all features of a given group+type as GeoJSON FeatureCollection. */
+  async getMapFeatures(group, type) {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT osm_id, name, geometry, properties FROM map_features WHERE feature_group = ? AND feature_type = ?',
+        [group, type],
+        (err, rows) => {
+          if (err) { reject(err); return; }
+          const features = rows.map(r => ({
+            type: 'Feature',
+            geometry: JSON.parse(r.geometry),
+            properties: {
+              osm_id: r.osm_id,
+              name: r.name,
+              ...(r.properties ? JSON.parse(r.properties) : {}),
+            }
+          }));
+          resolve({ type: 'FeatureCollection', features });
+        }
+      );
+    });
+  }
+
+  /** Count features for a group+type (used to skip refetch). */
+  async countMapFeatures(group, type) {
+    return new Promise((resolve, reject) => {
+      this.db.get(
+        'SELECT COUNT(*) AS n FROM map_features WHERE feature_group = ? AND feature_type = ?',
+        [group, type],
+        (err, row) => err ? reject(err) : resolve(row?.n || 0)
+      );
+    });
+  }
+
+  /** Delete all features of a group+type (for cache clearing). */
+  async clearMapFeatures(group, type) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'DELETE FROM map_features WHERE feature_group = ? AND feature_type = ?',
+        [group, type],
+        function (err) { err ? reject(err) : resolve(this.changes); }
+      );
+    });
+  }
+
+  /* ============================================================
+   * CUSTOM LAYERS — user-uploaded GIS files
+   * ============================================================ */
+
+  async addCustomLayer(layer) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `INSERT INTO custom_layers
+         (id, name, file_name, file_format, file_size, stored_path, is_visible,
+          z_order, opacity, style, bounds, feature_count, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [layer.id, layer.name, layer.file_name, layer.file_format,
+         layer.file_size || 0, layer.stored_path,
+         layer.is_visible === false ? 0 : 1,
+         layer.z_order || 0, layer.opacity ?? 1.0,
+         JSON.stringify(layer.style || {}),
+         JSON.stringify(layer.bounds || null),
+         layer.feature_count || 0, layer.uploaded_by || null],
+        function (err) { err ? reject(err) : resolve(layer.id); }
+      );
+    });
+  }
+
+  async listCustomLayers() {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT * FROM custom_layers ORDER BY z_order ASC, created_at ASC',
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows.map(r => ({
+            ...r,
+            is_visible: !!r.is_visible,
+            style:  r.style  ? JSON.parse(r.style)  : {},
+            bounds: r.bounds ? JSON.parse(r.bounds) : null,
+          })));
+        }
+      );
+    });
+  }
+
+  async updateCustomLayer(id, updates) {
+    const allowed = ['name','is_visible','z_order','opacity','style'];
+    const fields = [], params = [];
+    for (const [k, v] of Object.entries(updates)) {
+      if (!allowed.includes(k)) continue;
+      fields.push(`${k} = ?`);
+      if (k === 'style')      params.push(JSON.stringify(v));
+      else if (k === 'is_visible') params.push(v ? 1 : 0);
+      else                    params.push(v);
+    }
+    if (!fields.length) return;
+    params.push(id);
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        `UPDATE custom_layers SET ${fields.join(', ')} WHERE id = ?`,
+        params,
+        function (err) { err ? reject(err) : resolve(this.changes); }
+      );
+    });
+  }
+
+  async deleteCustomLayer(id) {
+    return new Promise((resolve, reject) => {
+      this.db.get('SELECT stored_path FROM custom_layers WHERE id = ?', [id], (err, row) => {
+        if (err) return reject(err);
+        this.db.run('DELETE FROM custom_layers WHERE id = ?', [id], function (delErr) {
+          if (delErr) reject(delErr); else resolve(row?.stored_path);
+        });
+      });
+    });
+  }
+
   close() {
     return new Promise((resolve, reject) => {
       if (this.db) {
@@ -558,6 +769,20 @@ class FacilityDatabaseManager {
       }
     });
   }
+}
+
+/** Compute bbox of a GeoJSON geometry (Point/LineString/Polygon/Multi*). */
+function _bboxOfGeometry(g) {
+  let s = 90, n = -90, w = 180, e = -180;
+  function walk(c) {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === 'number') {
+      w = Math.min(w, c[0]); e = Math.max(e, c[0]);
+      s = Math.min(s, c[1]); n = Math.max(n, c[1]);
+    } else c.forEach(walk);
+  }
+  walk(g.coordinates);
+  return isFinite(s) ? { south:s, north:n, west:w, east:e } : { south:null, north:null, west:null, east:null };
 }
 
 module.exports = FacilityDatabaseManager;

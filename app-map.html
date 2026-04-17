@@ -169,6 +169,111 @@ body.tool-marker{cursor:crosshair!important;}
 body.tool-draw{cursor:crosshair!important;}
 body.tool-measure{cursor:crosshair!important;}
 
+/* ── Compass rose ── */
+#map-compass{
+  position:fixed;bottom:56px;right:60px;z-index:600;
+  width:54px;height:54px;cursor:pointer;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));
+  transition:transform .15s;
+}
+#map-compass:hover{transform:scale(1.1);}
+
+/* ── Archive year selector ── */
+#archive-selector{
+  position:fixed;bottom:56px;left:270px;z-index:600;
+  background:var(--c-panel);border:1px solid var(--c-border2);
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  font-family:'Roboto Mono',monospace;color:var(--c-text);
+}
+
+/* ── OAM aerial box (theme-aware) ── */
+#oam-box{
+  position:fixed;top:90px;right:70px;z-index:700;
+  width:320px;
+  background:var(--c-panel);border:1px solid var(--c-border2);
+  color:var(--c-text);
+  box-shadow:0 8px 32px rgba(0,0,0,.6);
+  resize:both;overflow:auto;min-width:200px;min-height:120px;
+}
+#oam-box-header{
+  display:flex;align-items:center;padding:8px 10px;
+  border-bottom:1px solid var(--c-border);
+  cursor:move;user-select:none;
+}
+#oam-loading{
+  color:var(--c-dim)!important;
+}
+#oam-meta{
+  color:var(--c-muted)!important;border-top:1px solid var(--c-border);
+}
+#oam-meta > div:first-child{color:var(--c-text)!important;}
+
+/* ── Server log panel (theme-aware) ── */
+#log-panel{
+  position:fixed;bottom:40px;left:0;right:0;height:200px;z-index:900;
+  background:var(--c-bg);border-top:1px solid var(--c-border2);
+  display:flex;flex-direction:column;font-family:'Roboto Mono',monospace;
+  color:var(--c-text);
+}
+#log-panel-header{
+  display:flex;align-items:center;padding:5px 12px;
+  border-bottom:1px solid var(--c-border);
+}
+#log-output{
+  flex:1;overflow-y:auto;padding:4px 12px;
+  font-size:9px;line-height:1.6;color:var(--c-muted);letter-spacing:.5px;
+}
+#log-output::-webkit-scrollbar{width:3px;}
+#log-output::-webkit-scrollbar-thumb{background:var(--c-border2);}
+.log-line--info    {color:var(--c-text);opacity:.75;}
+.log-line--success {color:#4ade80;}
+.log-line--warning {color:#fbbf24;}
+.log-line--error   {color:#f87171;}
+.log-line--server  {color:var(--c-amber);}
+#log-toggle-btn{
+  position:fixed;bottom:44px;left:8px;z-index:901;
+  background:var(--c-panel);border:1px solid var(--c-border);
+  color:var(--c-muted);font-family:'Roboto Mono',monospace;font-size:8px;letter-spacing:1px;
+  padding:4px 10px;cursor:pointer;transition:all .15s;
+}
+#log-toggle-btn:hover{color:var(--c-text);border-color:var(--c-border2);}
+
+/* ── GIS layers panel ── */
+.gis-upload-btn{
+  display:flex;align-items:center;justify-content:center;
+  padding:8px;border:1px dashed var(--c-border2);color:var(--c-muted);
+  font-size:9px;letter-spacing:2px;cursor:pointer;
+  transition:all .15s;
+}
+.gis-upload-btn:hover{color:var(--c-amber);border-color:var(--c-amber);}
+.gis-layer-row{
+  background:var(--c-bg);border:1px solid var(--c-border);
+  padding:6px 8px;display:flex;flex-direction:column;gap:4px;
+}
+.gis-layer-head{display:flex;align-items:center;gap:6px;}
+.gis-layer-vis{
+  background:none;border:1px solid var(--c-border);color:var(--c-dim);
+  font-family:'Roboto Mono',monospace;font-size:10px;width:18px;height:18px;
+  padding:0;cursor:pointer;flex-shrink:0;
+}
+.gis-layer-vis.on{color:var(--c-amber);border-color:var(--c-amber);}
+.gis-layer-name{
+  font-size:9px;color:var(--c-text);letter-spacing:.5px;flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.gis-layer-fmt{
+  font-size:7px;letter-spacing:1px;color:var(--c-muted);
+  border:1px solid var(--c-border);padding:1px 4px;text-transform:uppercase;
+}
+.gis-layer-ctrls{display:flex;align-items:center;gap:3px;}
+.gis-btn-xs{
+  background:none;border:1px solid var(--c-border);color:var(--c-muted);
+  font-family:'Roboto Mono',monospace;font-size:8px;width:20px;height:20px;
+  padding:0;cursor:pointer;flex-shrink:0;transition:all .15s;
+}
+.gis-btn-xs:hover{color:var(--c-text);border-color:var(--c-border2);}
+.gis-btn-del:hover{color:#f87171;border-color:#f87171;}
+
 /* ── Search bar ── */
 .map-search-input {
   width:100%;background:var(--c-bg,#050810);
@@ -291,6 +396,7 @@ body.tool-measure{cursor:crosshair!important;}
         <button class="layer-btn"        data-layer="osm-light"   onclick="setLayer('osm-light',this)">OSM Light</button>
         <button class="layer-btn"        data-layer="satellite"   onclick="setLayer('satellite',this)">Satellite</button>
         <button class="layer-btn"        data-layer="terrain"     onclick="setLayer('terrain',this)">Terrain</button>
+        <button class="layer-btn"        data-layer="archive"     onclick="openArchiveSelector()">📅 Archive</button>
       </div>
     </div>
 
@@ -306,6 +412,7 @@ body.tool-measure{cursor:crosshair!important;}
         <button class="tool-btn"        id="tool-measure-dist"  onclick="setTool('measure-dist',this)"><span class="t-icon">⟷</span><span class="t-label">DIST</span></button>
         <button class="tool-btn"        id="tool-measure-area"  onclick="setTool('measure-area',this)"><span class="t-icon">⬜</span><span class="t-label">AREA</span></button>
         <button class="tool-btn"        id="tool-facilities"    onclick="setTool('facilities',this)"><span class="t-icon">⬡</span><span class="t-label">LAYERS</span></button>
+        <button class="tool-btn"        id="tool-aerial"        onclick="triggerOam()"><span class="t-icon">🛰</span><span class="t-label">AERIAL</span></button>
       </div>
       <!-- Active draw color -->
       <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
@@ -427,6 +534,70 @@ body.tool-measure{cursor:crosshair!important;}
       </div>
     </div>
 
+    <!-- Natural feature layers -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>NATURAL FEATURES</span>
+        <span style="font-size:7px;color:#3a4155;letter-spacing:1px;">LIVE</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <div class="infra-row">
+          <button class="infra-btn" id="nat-btn-rivers"
+            onclick="toggleNaturalLayer('rivers', this)">
+            <span class="infra-line" style="background:#3b82f6;height:3px;"></span>
+            <span class="infra-lbl">RIVERS &amp; WATER</span>
+          </button>
+          <button class="infra-reload" title="Reload" onclick="reloadNaturalLayer('rivers', document.getElementById('nat-btn-rivers'))">⟳</button>
+        </div>
+        <div class="infra-row">
+          <button class="infra-btn" id="nat-btn-wind"
+            onclick="toggleNaturalLayer('wind', this)">
+            <span class="infra-line infra-line--dashed" style="border-top:2px dashed #a3e635;"></span>
+            <span class="infra-lbl">WIND CURRENTS</span>
+          </button>
+          <button class="infra-reload" title="Reload" onclick="reloadNaturalLayer('wind', document.getElementById('nat-btn-wind'))">⟳</button>
+        </div>
+        <div class="infra-row">
+          <button class="infra-btn" id="nat-btn-sea_currents"
+            onclick="toggleNaturalLayer('sea_currents', this)">
+            <span class="infra-line infra-line--dashed" style="border-top:2px dashed #818cf8;"></span>
+            <span class="infra-lbl">SEA CURRENTS</span>
+          </button>
+          <button class="infra-reload" title="Reload" onclick="reloadNaturalLayer('sea_currents', document.getElementById('nat-btn-sea_currents'))">⟳</button>
+        </div>
+        <div class="infra-row">
+          <button class="infra-btn" id="slope-toggle-btn"
+            onclick="toggleSlopeLayer(this)">
+            <span class="infra-line" style="background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);height:4px;"></span>
+            <span class="infra-lbl">SLOPE</span>
+          </button>
+          <a href="#" onclick="open3DView();return false;" class="infra-reload" title="3D view"
+            style="text-decoration:none;display:flex;align-items:center;justify-content:center;">3D</a>
+        </div>
+      </div>
+      <div style="font-size:7px;color:var(--c-dim);margin-top:6px;letter-spacing:1px;line-height:1.5;">
+        Slope: AWS Terrain Tiles, zoom ≥ 8.<br>
+        Green = flat, red = steep.
+      </div>
+    </div>
+
+    <!-- Custom GIS layers -->
+    <div class="p-section">
+      <div class="p-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>CUSTOM LAYERS</span>
+        <span style="font-size:7px;color:var(--c-dim);letter-spacing:1px;">GIS</span>
+      </div>
+      <label class="gis-upload-btn" title="Upload GeoJSON, KML, PNG, JPG, GeoTIFF">
+        <input type="file" id="gis-upload-input" accept=".geojson,.json,.kml,.tif,.tiff,.png,.jpg,.jpeg"
+          onchange="handleLayerUpload(this)" style="display:none;">
+        <span>+ UPLOAD FILE</span>
+      </label>
+      <div id="gis-layers-list" style="display:flex;flex-direction:column;gap:4px;margin-top:6px;"></div>
+      <div style="font-size:7px;color:var(--c-dim);margin-top:6px;letter-spacing:1px;line-height:1.5;">
+        Max 50 MB · GeoTIFF preview coming soon
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -500,10 +671,65 @@ body.tool-measure{cursor:crosshair!important;}
   </div>
 </div>
 
+<!-- Compass rose -->
+<div id="map-compass" title="Click to reset north">
+  <svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" id="compass-svg">
+    <circle cx="30" cy="30" r="28" fill="rgba(11,15,28,.9)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+    <!-- N needle (red) -->
+    <polygon points="30,6 34,30 30,26 26,30" fill="#ef4444"/>
+    <!-- S needle (gray) -->
+    <polygon points="30,54 34,30 30,34 26,30" fill="#3a4155"/>
+    <circle cx="30" cy="30" r="3" fill="rgba(255,255,255,0.6)"/>
+    <text x="30" y="18" text-anchor="middle" font-family="Roboto Mono,monospace" font-size="7" fill="#ef4444" font-weight="700">N</text>
+  </svg>
+</div>
+
+<!-- Archive satellite year selector -->
+<div id="archive-selector" style="display:none;">
+  <span style="font-size:8px;letter-spacing:2px;color:var(--c-muted);">ARCHIVE</span>
+  <input type="range" id="archive-year" min="2000" max="2024" value="2024"
+    oninput="updateArchiveLayer(this.value)" style="flex:1;accent-color:var(--c-amber);width:80px;">
+  <span id="archive-year-label" style="font-size:9px;color:var(--c-amber);min-width:32px;text-align:right;">2024</span>
+  <button onclick="closeArchiveLayer()" style="background:none;border:none;color:var(--c-dim);cursor:pointer;font-size:12px;padding:0 4px;">✕</button>
+</div>
+
+<!-- OAM Aerial image box -->
+<div id="oam-box" style="display:none;">
+  <div id="oam-box-header">
+    <span id="oam-box-title" style="font-size:8px;letter-spacing:2px;color:var(--c-muted);flex:1;">AERIAL IMAGERY</span>
+    <button onclick="document.getElementById('oam-box').style.display='none'"
+      style="background:none;border:none;color:var(--c-dim);cursor:pointer;font-size:12px;padding:0;">✕</button>
+  </div>
+  <div id="oam-box-body">
+    <div id="oam-loading" style="display:flex;align-items:center;justify-content:center;height:180px;font-size:9px;letter-spacing:2px;">FETCHING IMAGERY…</div>
+    <img id="oam-img" style="display:none;width:100%;height:auto;max-height:280px;object-fit:cover;" alt="Aerial imagery">
+    <div id="oam-meta" style="font-size:8px;padding:6px 8px;letter-spacing:.5px;line-height:1.6;display:none;"></div>
+  </div>
+</div>
+
+<!-- Server log panel (admin only) -->
+<div id="log-panel" style="display:none;">
+  <div id="log-panel-header">
+    <span style="font-size:8px;letter-spacing:3px;color:var(--c-muted);flex:1;">SERVER LOG</span>
+    <button onclick="toggleLogPanel()" style="background:none;border:none;color:var(--c-dim);cursor:pointer;font-size:11px;padding:0 4px;">✕</button>
+  </div>
+  <div id="log-output"></div>
+  <div style="padding:4px 10px;border-top:1px solid var(--c-border);display:flex;justify-content:space-between;align-items:center;">
+    <span id="log-status" style="font-size:7px;color:var(--c-dim);letter-spacing:1px;">DISCONNECTED</span>
+    <button onclick="clearLog()" style="background:none;border:none;color:var(--c-dim);font-family:'Roboto Mono',monospace;font-size:7px;letter-spacing:1px;cursor:pointer;">CLEAR</button>
+  </div>
+</div>
+
+<!-- Log toggle button (shown for admins) -->
+<button id="log-toggle-btn" onclick="toggleLogPanel()" style="display:none;">
+  ◈ LOG
+</button>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="app-nav.js"></script>
 <script src="infra-layers.js"></script>
+<script src="natural-layers.js"></script>
+<script src="gis-layers.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════
 // AEGIS V3 — Map Workspace
@@ -1464,7 +1690,255 @@ document.addEventListener('click', e => {
   }
 });
 
-// ── URL coords (from facility database "MAP" button) ──────────
+// ── Compass (visual north indicator + map rotation) ───────────
+let mapBearing = 0;
+
+function initCompass() {
+  const el = document.getElementById('map-compass');
+  if (!el) return;
+
+  // Click resets to north
+  el.addEventListener('click', () => {
+    mapBearing = 0;
+    updateCompassVisual(0);
+    map.getContainer().style.transform = '';
+    map.getContainer().style.transformOrigin = '';
+  });
+
+  // Drag on compass rotates the map
+  let dragging = false, startAngle = 0, startBearing = 0;
+
+  el.addEventListener('mousedown', e => {
+    dragging = true;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    startBearing = mapBearing;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    mapBearing = (startBearing + (angle - startAngle) + 360) % 360;
+    updateCompassVisual(mapBearing);
+    rotateMap(mapBearing);
+  });
+
+  document.addEventListener('mouseup', () => { dragging = false; });
+}
+
+function updateCompassVisual(deg) {
+  const svg = document.getElementById('compass-svg');
+  if (svg) svg.style.transform = `rotate(${deg}deg)`;
+}
+
+function rotateMap(deg) {
+  const container = map.getContainer();
+  const w = container.offsetWidth, h = container.offsetHeight;
+  container.style.transformOrigin = `${w/2}px ${h/2}px`;
+  container.style.transform = `rotate(${-deg}deg)`;
+  // Invalidate map so tiles reload
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
+// ── Archive satellite layer (NASA GIBS / MODIS) ───────────────
+let _archiveLayer = null;
+
+function openArchiveSelector() {
+  const sel = document.getElementById('archive-selector');
+  if (!sel) return;
+  sel.style.display = 'flex';
+  const yearInput = document.getElementById('archive-year');
+  updateArchiveLayer(yearInput.value);
+}
+
+function updateArchiveLayer(year) {
+  document.getElementById('archive-year-label').textContent = year;
+  const date = year + '-06-01'; // mid-year snapshot
+
+  // Remove existing archive layer
+  if (_archiveLayer) { map.removeLayer(_archiveLayer); _archiveLayer = null; }
+
+  // NASA GIBS WMTS — MODIS Terra True Color (2000-present, 250m)
+  const gibs = parseInt(year) >= 2013
+    ? 'MODIS_Terra_CorrectedReflectance_TrueColor'  // best quality
+    : 'MODIS_Terra_CorrectedReflectance_TrueColor'; // same, available from 2000
+
+  _archiveLayer = L.tileLayer(
+    `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${gibs}/default/${date}/GoogleMapsCompatible/{z}/{y}/{x}.jpg`,
+    { maxZoom:9, attribution:'NASA GIBS · MODIS Terra · ' + year, opacity:0.85, zIndex:500 }
+  ).addTo(map);
+}
+
+function closeArchiveLayer() {
+  if (_archiveLayer) { map.removeLayer(_archiveLayer); _archiveLayer = null; }
+  document.getElementById('archive-selector').style.display = 'none';
+}
+
+// ── OAM Aerial Image Box ──────────────────────────────────────
+function makeDraggable(el, handleEl) {
+  let ox = 0, oy = 0, mx = 0, my = 0;
+  handleEl.addEventListener('mousedown', e => {
+    mx = e.clientX; my = e.clientY;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', stopDrag);
+    e.preventDefault();
+  });
+  function onDrag(e) {
+    const dx = e.clientX - mx, dy = e.clientY - my;
+    mx = e.clientX; my = e.clientY;
+    el.style.left = (el.offsetLeft + dx) + 'px';
+    el.style.top  = (el.offsetTop  + dy) + 'px';
+    el.style.right = 'auto'; el.style.bottom = 'auto';
+  }
+  function stopDrag() {
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', stopDrag);
+  }
+}
+
+async function openOamBox(lat, lng) {
+  const box = document.getElementById('oam-box');
+  box.style.display = '';
+  document.getElementById('oam-loading').style.display = 'flex';
+  document.getElementById('oam-loading').textContent   = 'FETCHING IMAGERY…';
+  document.getElementById('oam-img').style.display = 'none';
+  document.getElementById('oam-meta').style.display = 'none';
+
+  try {
+    // Call our server-side aerial proxy (tries OAM, falls back to NASA GIBS)
+    const r = await axios.get(window.AEGIS_API + '/api/aerial/search', {
+      params: { lat, lng, radius: 0.02 },
+      timeout: 20000,
+    });
+
+    const { best, source } = r.data || {};
+    if (!best || !best.thumbnail) {
+      document.getElementById('oam-loading').textContent = 'No aerial imagery available for this area.';
+      return;
+    }
+
+    const img  = document.getElementById('oam-img');
+    const meta = document.getElementById('oam-meta');
+
+    // Route image through our proxy to avoid CORS/mixed-content blocks
+    const proxiedUrl = window.AEGIS_API + '/api/aerial/thumbnail?url=' + encodeURIComponent(best.thumbnail);
+    img.src = proxiedUrl;
+    img.onload = () => {
+      document.getElementById('oam-loading').style.display = 'none';
+      img.style.display = '';
+    };
+    img.onerror = () => {
+      document.getElementById('oam-loading').textContent = 'Image failed to load.';
+    };
+
+    const acqDate = best.acquisition_start
+      ? new Date(best.acquisition_start).toLocaleDateString('en-GB', { year:'numeric', month:'short', day:'2-digit' })
+      : '?';
+    const sourceLabel = source === 'oam' ? 'OpenAerialMap' : 'NASA GIBS (fallback)';
+
+    meta.innerHTML = `
+      <div style="font-weight:700;margin-bottom:2px;">${h(best.title || 'Aerial Image')}</div>
+      <div>📅 ${acqDate} · ${h(best.provider || sourceLabel)}</div>
+      ${best.gsd ? `<div>GSD: ${parseFloat(best.gsd).toFixed(2)}m · ${h(sourceLabel)}</div>` : `<div>${h(sourceLabel)}</div>`}
+    `;
+    meta.style.display = '';
+    document.getElementById('oam-box-title').textContent = 'AERIAL — ' + acqDate;
+  } catch (err) {
+    document.getElementById('oam-loading').textContent =
+      'Imagery unavailable: ' + (err.response?.data?.error || err.message);
+  }
+}
+
+// ── Server log stream (admin only) ───────────────────────────
+let _logWs = null;
+let _logOpen = false;
+let _isAdmin = false;
+
+function initLogStream(isAdmin) {
+  _isAdmin = isAdmin;
+  if (!isAdmin) return;
+  document.getElementById('log-toggle-btn').style.display = '';
+}
+
+function toggleLogPanel() {
+  _logOpen = !_logOpen;
+  const panel = document.getElementById('log-panel');
+  panel.style.display = _logOpen ? '' : 'none';
+  if (_logOpen && !_logWs) connectLogStream();
+}
+
+function connectLogStream() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url   = `${proto}//${location.host}/ws/logs`;
+  const status = document.getElementById('log-status');
+  status.textContent = 'CONNECTING…';
+  appendLogLine(`[CLIENT] Connecting to ${url}`);
+
+  try {
+    _logWs = new WebSocket(url);
+  } catch (e) {
+    appendLogLine(`[CLIENT] ERROR creating WebSocket: ${e.message}`);
+    status.textContent = 'FAILED';
+    return;
+  }
+
+  _logWs.onopen = () => {
+    status.textContent = 'CONNECTED';
+    appendLogLine(`[CLIENT] ✓ Connected — live server log active`);
+  };
+  _logWs.onclose = (ev) => {
+    status.textContent = 'DISCONNECTED';
+    appendLogLine(`[CLIENT] Disconnected (code ${ev.code}${ev.reason?': '+ev.reason:''})`);
+    _logWs = null;
+    // Auto-reconnect after 5s if panel is open
+    if (_logOpen) setTimeout(connectLogStream, 5000);
+  };
+  _logWs.onerror = () => {
+    status.textContent = 'ERROR';
+    appendLogLine(`[CLIENT] ✗ WebSocket error — check server console, did you npm install after the last update?`);
+  };
+  _logWs.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') msg.lines.forEach(appendLogLine);
+      if (msg.type === 'log')    appendLogLine(msg.line);
+    } catch {}
+  };
+}
+
+function appendLogLine(line) {
+  const out = document.getElementById('log-output');
+  if (!out) return;
+  const div = document.createElement('div');
+  div.textContent = line;
+  // Color-code by content
+  if (line.includes('✓') || line.includes('success')) div.className = 'log-line--success';
+  else if (line.includes('⚠') || line.includes('warning')) div.className = 'log-line--warning';
+  else if (line.includes('✗') || line.includes('error') || line.includes('ERR')) div.className = 'log-line--error';
+  else if (line.includes('◆') || line.includes('server')) div.className = 'log-line--server';
+  else div.className = 'log-line--info';
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+  // Keep at most 500 lines
+  while (out.children.length > 500) out.removeChild(out.firstChild);
+}
+
+function clearLog() {
+  const out = document.getElementById('log-output');
+  if (out) out.innerHTML = '';
+}
+
+// ── OAM trigger (center of current view) ─────────────────────
+function triggerOam() {
+  const center = map.getCenter();
+  openOamBox(center.lat, center.lng);
+}
+
+// ── URL coords ────────────────────────────────────────────────
 function checkUrlCoords() {
   const p = new URLSearchParams(window.location.search);
   const lat = parseFloat(p.get('lat')), lng = parseFloat(p.get('lng')), zoom = parseInt(p.get('zoom')||'16');
@@ -1473,19 +1947,32 @@ function checkUrlCoords() {
 
 // ── Boot ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  // Global axios credential flag (cookies)
   axios.defaults.withCredentials = true;
 
   applyTheme(prefs.theme || 'default');
-  // Leaflet popup style override
+
+  // Leaflet popup CSS injection
   const style = document.createElement('style');
-  style.textContent = `.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#0b0f1c!important;border:none!important;box-shadow:0 4px 20px rgba(0,0,0,.6)!important;border-radius:0!important;padding:0!important;} .leaflet-popup-content{margin:0!important;} .aegis-popup .leaflet-popup-content-wrapper{border:1px solid rgba(255,255,255,0.12)!important;}`;
+  style.textContent = `.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#0b0f1c!important;border:none!important;box-shadow:0 4px 20px rgba(0,0,0,.6)!important;border-radius:0!important;padding:0!important;}.leaflet-popup-content{margin:0!important;}.aegis-popup .leaflet-popup-content-wrapper{border:1px solid rgba(255,255,255,0.12)!important;}`;
   document.head.appendChild(style);
 
   checkUrlCoords();
   renderMarkerList();
   renderShapeList();
   setDrawColor(currentShapeColor);
+
+  // Init compass
+  initCompass();
+
+  // Make OAM box draggable
+  const oamBox = document.getElementById('oam-box');
+  const oamHdr = document.getElementById('oam-box-header');
+  if (oamBox && oamHdr) makeDraggable(oamBox, oamHdr);
+
+  // Check if admin for log panel
+  axios.get(window.AEGIS_API + '/api/auth/me').then(r => {
+    initLogStream(r.data.role === 'admin');
+  }).catch(() => {});
 
   const waitProject = setInterval(() => {
     const p = window.AEGIS_PROJECT; if (!p) return;
@@ -1494,7 +1981,7 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lp-project-id').textContent = p.id.slice(0,8).toUpperCase();
     document.getElementById('bb-project').textContent    = p.name;
 
-    // Load hazard scale for this project
+    // Load hazard scale
     axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/hazard-scale')
       .then(r => { window.AEGIS_HAZARD_SCALE = r.data.scale || {}; })
       .catch(() => { window.AEGIS_HAZARD_SCALE = {}; });
@@ -1519,9 +2006,30 @@ window.addEventListener('DOMContentLoaded', () => {
 
     loadFromStorage();
     reloadFacilities();
+
+    // Init infra + restore toggle state
     initInfraLayers(map);
+    restoreInfraLayers(p.id);
+
+    // Init natural layers + restore
+    initNaturalLayers(map);
+    restoreNaturalLayers(p.id);
+
+    // Init custom GIS layers + load persisted user uploads
+    initCustomGis(map);
+    loadCustomGisLayers();
   }, 150);
 });
+
+// ── 3D view (MapLibre GL JS + OSM building extrusion + DEM) ──────
+function open3DView() {
+  const p = window.AEGIS_PROJECT;
+  if (!p) { alert('No project loaded.'); return; }
+  const c = map.getCenter();
+  const z = Math.max(map.getZoom(), 15);
+  const url = `app-3d.html?project=${encodeURIComponent(p.id)}&lat=${c.lat}&lng=${c.lng}&zoom=${z}`;
+  window.open(url, '_blank');
+}
 
 // ── Util ─────────────────────────────────────────────────────
 function h(s) { const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
