@@ -214,14 +214,93 @@
             </div>
           </div>
         </div>
+
+        <!-- Relationship Graph settings -->
+        <div class="settings-card settings-card--scan">
+          <div class="settings-card__head">
+            <div class="settings-card__head-accent" style="background:#818cf8;"></div>
+            RELATIONSHIP GRAPH — CASCADING RISK ANALYSIS
+          </div>
+          <div class="settings-card__body">
+            <div style="font-size:9px;color:var(--c-muted);letter-spacing:1px;margin-bottom:12px;line-height:1.6;">
+              Computes facility interdependency graph using distance rules and the TST framework.
+              Auto-runs after each scan. Open the graph view to explore connections interactively.
+            </div>
+
+            <!-- Stats row -->
+            <div class="scan-status-grid" style="margin-bottom:12px;">
+              <div class="scan-stat-card"><div class="scan-stat-card__label">NODES</div><div class="scan-stat-card__val" id="rel-node-count">—</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">EDGES</div><div class="scan-stat-card__val" id="rel-edge-count">—</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">CASCADING</div><div class="scan-stat-card__val" id="rel-hca-count">—</div></div>
+              <div class="scan-stat-card"><div class="scan-stat-card__label">ENV CONTEXTS</div><div class="scan-stat-card__val" id="rel-env-count">—</div></div>
+            </div>
+
+            <!-- Environment context toggles -->
+            <div style="margin-bottom:12px;">
+              <div class="settings-label" style="margin-bottom:6px;">ENVIRONMENT CONTEXT (manual override)</div>
+              <div id="rel-env-toggles" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+              <div style="font-size:7px;color:var(--c-dim);margin-top:4px;letter-spacing:1px;">Auto-detected from OSM at compute time. Toggle to override.</div>
+            </div>
+
+            <!-- Schedule editor (collapsed) -->
+            <div style="margin-bottom:12px;">
+              <button class="app-btn app-btn--sm" onclick="toggleScheduleEditor()" id="sched-toggle-btn">
+                ▶ FACILITY SCHEDULES (click to expand)
+              </button>
+              <div id="schedule-editor" style="display:none;margin-top:8px;">
+                <div style="font-size:8px;color:var(--c-muted);letter-spacing:1px;margin-bottom:8px;line-height:1.5;">
+                  Default operational hours per facility type. Used to classify temporal relationships (TSI/TCO/TDI).
+                </div>
+                <div id="schedule-table" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="app-btn app-btn--primary" id="rel-compute-btn"
+                style="border-color:#818cf8;color:#818cf8;"
+                onmouseover="this.style.background='rgba(129,140,248,.15)'"
+                onmouseout="this.style.background='transparent'"
+                onclick="computeRelGraph()">◈ COMPUTE GRAPH</button>
+              <button class="app-btn app-btn--sm"
+                onclick="openRelGraph()">OPEN GRAPH VIEW ↗</button>
+              <span id="rel-compute-status" style="font-size:9px;color:var(--c-muted);letter-spacing:1px;align-self:center;"></span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- ══ OSM LAYER LIBRARY ════════════════════════════════════ -->
+  <div id="page-osm-library" class="page-view">
+    <div class="page-header">
+      <div class="page-header__title">OSM LAYER LIBRARY</div>
+      <div class="page-header__sub">Pin layers to your project side panel. Layers are downloaded on first use and cached per project.</div>
+      <div class="page-header__actions">
+        <input class="fdb-filter-input" id="osm-lib-search" placeholder="Search layers..."
+          oninput="filterOsmCatalog(this.value)" style="max-width:260px;">
+        <select class="fdb-filter-select" id="osm-lib-section-filter" onchange="filterOsmCatalog(document.getElementById('osm-lib-search').value)">
+          <option value="">All Sections</option>
+          <option value="natural">Natural Features</option>
+          <option value="infrastructure">Infrastructure</option>
+        </select>
+        <select class="fdb-filter-select" id="osm-lib-pin-filter" onchange="filterOsmCatalog(document.getElementById('osm-lib-search').value)">
+          <option value="">All Layers</option>
+          <option value="pinned">Pinned Only</option>
+          <option value="unpinned">Not Pinned</option>
+        </select>
+        <span class="fdb-count" id="osm-lib-count">— layers</span>
+      </div>
+    </div>
+    <div class="page-body" style="padding:16px 24px;">
+      <div id="osm-lib-catalog" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
+    </div>
+  </div>
+
   <!-- ══ STUBS ═════════════════════════════════════════════════ -->
-  <div id="page-risk-inventory"   class="page-view"><div class="page-stub"><div class="page-stub__icon">⚠</div><div class="page-stub__title">RISK INVENTORY</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
-  <div id="page-entities-network" class="page-view"><div class="page-stub"><div class="page-stub__icon">◈</div><div class="page-stub__title">ENTITIES NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
-  <div id="page-risk-network"     class="page-view"><div class="page-stub"><div class="page-stub__icon">⬡</div><div class="page-stub__title">RISK NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+  <div id="page-risk-inventory"   class="page-view"><div class="page-stub"><div class="page-stub__icon">&#9888;</div><div class="page-stub__title">RISK INVENTORY</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+  <div id="page-entities-network" class="page-view"><div class="page-stub"><div class="page-stub__icon">&#9672;</div><div class="page-stub__title">ENTITIES NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
+  <div id="page-risk-network"     class="page-view"><div class="page-stub"><div class="page-stub__icon">&#11041;</div><div class="page-stub__title">RISK NETWORK</div><div class="page-stub__sub">MODULE UNDER DEVELOPMENT</div></div></div>
 
 </div><!-- /pages-root -->
 
@@ -280,7 +359,7 @@ axios.defaults.withCredentials = true;
 // ── Page routing ──────────────────────────────────────────────
 (function() {
   const page = new URLSearchParams(window.location.search).get('page') || 'facilities';
-  const VALID = ['facilities','settings','risk-inventory','entities-network','risk-network'];
+  const VALID = ['facilities','settings','osm-library','risk-inventory','entities-network','risk-network'];
   const target = VALID.includes(page) ? page : 'facilities';
   document.getElementById('page-' + target)?.classList.add('active');
   if (target === 'facilities') {
@@ -288,6 +367,9 @@ axios.defaults.withCredentials = true;
   }
   if (target === 'settings') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initSettingsPage, 200));
+  }
+  if (target === 'osm-library') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(initOsmLibraryPage, 200));
   }
 })();
 
@@ -374,6 +456,8 @@ function renderFdbPage() {
     const lng = parseFloat(f.longitude || 0).toFixed(5);
     const upd = f.updated_at ? new Date(f.updated_at).toLocaleDateString() : '—';
     const src = (f.source || '').replace(/_/g,' ').toUpperCase() || '—';
+    const p   = window.AEGIS_PROJECT;
+    const graphUrl = p ? `app-relations.html?project=${p.id}&focus=${encodeURIComponent(f.id)}` : '#';
     return `<tr>
       <td><span class="fdb-uuid" title="${h(f.id)}">${h((f.id||'').slice(0,14).toUpperCase())}</span></td>
       <td title="${h(f.name)}">${h(f.name||'—')}</td>
@@ -382,7 +466,14 @@ function renderFdbPage() {
       <td style="font-size:9px;">${h(src)}</td>
       <td style="font-size:9px;color:#5a6378;">${lat} / ${lng}</td>
       <td style="font-size:9px;color:#5a6378;">${upd}</td>
-      <td><button class="fdb-action-btn" onclick="locateOnMap(${f.latitude},${f.longitude})">MAP</button></td>
+      <td style="display:flex;gap:3px;">
+        <button class="fdb-action-btn" onclick="locateOnMap(${f.latitude},${f.longitude})">MAP</button>
+        <a href="${graphUrl}" target="_blank"
+          style="font-family:inherit;font-size:8px;letter-spacing:1px;padding:2px 6px;
+            border:1px solid #818cf8;color:#818cf8;text-decoration:none;transition:all .15s;"
+          onmouseover="this.style.background='rgba(129,140,248,.15)'"
+          onmouseout="this.style.background='transparent'">◈</a>
+      </td>
     </tr>`;
   }).join('');
 
@@ -502,6 +593,7 @@ async function initSettingsPage() {
     clearInterval(waitForP);
     fillSettingsPage(window.AEGIS_PROJECT);
     loadHazardScale();
+    loadRelGraphSettings();
   }, 100);
 }
 
@@ -532,6 +624,152 @@ function fillSettingsPage(p) {
 function saveBoundaryMaskPref(val) {
   prefs.boundaryMask = val;
   savePrefs();
+}
+
+// ── Relationship Graph ─────────────────────────────────────────
+const ENV_CONTEXTS = [
+  { key:'flood_zone',       label:'Flood Zone',         color:'#60a5fa' },
+  { key:'coastal_surge',    label:'Coastal Surge',      color:'#38bdf8' },
+  { key:'landslide_zone',   label:'Landslide Zone',     color:'#f97316' },
+  { key:'seismic_zone',     label:'Seismic Zone',       color:'#ef4444' },
+  { key:'wind_corridor',    label:'Wind Corridor',      color:'#a3e635' },
+  { key:'industrial_cluster',label:'Industrial Cluster',color:'#f59e0b' },
+];
+
+const DEFAULT_SCHEDULES = {
+  hospital:      { label:'Hospital',         hours:'00:00–24:00', days:'All week', always:true },
+  fire_station:  { label:'Fire Station',     hours:'00:00–24:00', days:'All week', always:true },
+  police:        { label:'Police',           hours:'00:00–24:00', days:'All week', always:true },
+  school:        { label:'School',           hours:'08:00–17:00', days:'Mon–Fri',  always:false },
+  clinic:        { label:'Clinic',           hours:'08:00–19:00', days:'Mon–Fri',  always:false },
+  gymnasium:     { label:'Gymnasium',        hours:'07:00–22:00', days:'All week', always:false },
+  shelter:       { label:'Shelter',          hours:'00:00–24:00', days:'All week', always:true },
+  power_plant:   { label:'Power Plant',      hours:'00:00–24:00', days:'All week', always:true },
+  substation:    { label:'Substation',       hours:'00:00–24:00', days:'All week', always:true },
+  chemical_plant:{ label:'Chemical Plant',   hours:'06:00–22:00', days:'Mon–Fri',  always:false },
+  petroleum:     { label:'Petroleum',        hours:'00:00–24:00', days:'All week', always:true },
+  waste:         { label:'Waste Facility',   hours:'06:00–20:00', days:'Mon–Sat',  always:false },
+  water:         { label:'Water Treatment',  hours:'00:00–24:00', days:'All week', always:true },
+  airport:       { label:'Airport',          hours:'04:00–24:00', days:'All week', always:true },
+  train_station: { label:'Train Station',    hours:'05:00–24:00', days:'All week', always:false },
+  communication: { label:'Telecom',          hours:'00:00–24:00', days:'All week', always:true },
+  military:      { label:'Military',         hours:'00:00–24:00', days:'All week', always:true },
+  storage_tank:  { label:'Storage Tank',     hours:'00:00–24:00', days:'All week', always:true },
+};
+
+let _relStats = null;
+
+async function loadRelGraphSettings() {
+  const p = window.AEGIS_PROJECT;
+  if (!p) return;
+
+  // Load stats
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/relationships/stats');
+    _relStats = r.data;
+    document.getElementById('rel-node-count').textContent = r.data.nodeCount || 0;
+    document.getElementById('rel-edge-count').textContent = r.data.edgeCount || 0;
+    const hca = r.data.byTst?.find(t => t.tst_type === 'HCA');
+    document.getElementById('rel-hca-count').textContent = hca?.n || 0;
+  } catch { /* no graph yet */ }
+
+  // Load env context
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/relationships/graph');
+    const env = r.data.env_context || {};
+    const active = Object.entries(env).filter(([,v]) => v?.value === 'true').length;
+    document.getElementById('rel-env-count').textContent = active || 0;
+    renderEnvToggles(env);
+  } catch {
+    renderEnvToggles({});
+  }
+
+  renderScheduleTable();
+}
+
+function renderEnvToggles(currentEnv) {
+  const el = document.getElementById('rel-env-toggles');
+  el.innerHTML = ENV_CONTEXTS.map(ctx => {
+    const active = currentEnv[ctx.key]?.value === 'true';
+    return `<button
+      onclick="toggleEnvContext('${ctx.key}', this)"
+      style="font-family:var(--c-font,monospace);font-size:8px;letter-spacing:1px;
+        padding:3px 9px;border:1px solid ${active ? ctx.color : 'var(--c-border)'};
+        color:${active ? ctx.color : 'var(--c-dim)'};
+        background:${active ? ctx.color+'1a' : 'transparent'};cursor:pointer;transition:all .15s;"
+      data-key="${ctx.key}" data-color="${ctx.color}" data-active="${active}">
+      ${ctx.label}
+    </button>`;
+  }).join('');
+}
+
+async function toggleEnvContext(key, btn) {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  const wasActive = btn.dataset.active === 'true';
+  const newVal    = !wasActive;
+  const ctx       = ENV_CONTEXTS.find(c => c.key === key);
+  try {
+    await axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/relationships/env-context', { [key]: newVal });
+    btn.dataset.active = String(newVal);
+    btn.style.borderColor = newVal ? ctx.color : 'var(--c-border)';
+    btn.style.color       = newVal ? ctx.color : 'var(--c-dim)';
+    btn.style.background  = newVal ? ctx.color + '1a' : 'transparent';
+    document.getElementById('rel-env-count').textContent =
+      document.querySelectorAll('[data-active="true"]').length;
+  } catch(err) {
+    alert('Failed: ' + (err.response?.data?.error || err.message));
+  }
+}
+
+function renderScheduleTable() {
+  const el = document.getElementById('schedule-table');
+  if (!el) return;
+  el.innerHTML = Object.entries(DEFAULT_SCHEDULES).map(([key, s]) =>
+    `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
+      background:var(--c-bg);border:1px solid var(--c-border);">
+      <span style="font-size:8px;letter-spacing:1px;color:var(--c-muted);flex:1;">${h(s.label)}</span>
+      <span style="font-size:7px;color:${s.always ? '#4ade80' : 'var(--c-dim)'};letter-spacing:.5px;">
+        ${s.always ? '24/7' : s.hours}
+      </span>
+      <span style="font-size:7px;color:var(--c-dim);letter-spacing:.5px;">${s.days}</span>
+    </div>`
+  ).join('');
+}
+
+function toggleScheduleEditor() {
+  const el  = document.getElementById('schedule-editor');
+  const btn = document.getElementById('sched-toggle-btn');
+  const open = el.style.display === 'none';
+  el.style.display  = open ? '' : 'none';
+  btn.textContent   = (open ? '▼' : '▶') + ' FACILITY SCHEDULES (click to ' + (open ? 'collapse' : 'expand') + ')';
+}
+
+async function computeRelGraph() {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  const btn = document.getElementById('rel-compute-btn');
+  const st  = document.getElementById('rel-compute-status');
+  btn.disabled = true; btn.textContent = '⟳ COMPUTING…';
+  st.textContent = '';
+  try {
+    const r = await axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/relationships/compute');
+    st.style.color = 'var(--c-green, #22c55e)';
+    st.textContent = `✓ ${r.data.nodes} nodes · ${r.data.edges} edges`;
+    document.getElementById('rel-node-count').textContent = r.data.nodes;
+    document.getElementById('rel-edge-count').textContent = r.data.edges;
+    if (r.data.env_contexts?.length) {
+      document.getElementById('rel-env-count').textContent = r.data.env_contexts.length;
+    }
+  } catch (err) {
+    st.style.color = '#f87171';
+    st.textContent = '✗ ' + (err.response?.data?.error || err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '◈ COMPUTE GRAPH';
+  }
+}
+
+function openRelGraph() {
+  const p = window.AEGIS_PROJECT;
+  if (p) window.open('app-relations.html?project=' + p.id, '_blank');
 }
 
 function saveBatchSize(val) {
@@ -739,6 +977,191 @@ function download(content, filename, mime) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([content], { type: mime }));
   a.download = filename; a.click();
+}
+
+// ══════════════════════════════════════════════════════════════
+// OSM LAYER LIBRARY PAGE
+// ══════════════════════════════════════════════════════════════
+
+const OSM_CATALOG = [
+  // Natural
+  { id:'protected_areas',   section:'natural',        label:'Protected Areas',    desc:'Nature reserves, national parks and protected land boundaries.' },
+  { id:'wetlands',          section:'natural',        label:'Wetlands',           desc:'Marshes, swamps, bogs and other wetland types.' },
+  { id:'forest',            section:'natural',        label:'Forest / Woodland',  desc:'Forested land and natural woodland areas.' },
+  { id:'scrubland',         section:'natural',        label:'Scrubland',          desc:'Low shrub vegetation and heathland.' },
+  { id:'grassland',         section:'natural',        label:'Grassland / Meadow', desc:'Natural grassland, pasture and meadow zones.' },
+  { id:'bare_rock',         section:'natural',        label:'Bare Rock / Arid',   desc:'Bare rock, scree, sand and desert surfaces.' },
+  { id:'flood_prone',       section:'natural',        label:'Flood-Prone Areas',  desc:'Floodplains and areas tagged as flood-prone in OSM.' },
+  { id:'mangroves',         section:'natural',        label:'Mangroves',          desc:'Mangrove wetland coastal zones.' },
+  { id:'glaciers',          section:'natural',        label:'Glaciers / Snowfields', desc:'Glaciers and permanent snow cover.' },
+  { id:'water_bodies',      section:'natural',        label:'Water Bodies',       desc:'Lakes, ponds, basins and other standing water.' },
+  { id:'coastline',         section:'natural',        label:'Coastline',          desc:'Coastal boundary lines from OSM.' },
+  // Land Use
+  { id:'farmland',          section:'natural',        label:'Agricultural Land',  desc:'Farmland, orchards, vineyards, allotments and greenhouses.' },
+  { id:'residential',       section:'natural',        label:'Residential Areas',  desc:'Residential land use zones.' },
+  { id:'recreation',        section:'natural',        label:'Recreation / Parks', desc:'Parks, sports grounds, nature recreation areas.' },
+  { id:'cemetery',          section:'natural',        label:'Cemeteries',         desc:'Cemeteries and grave yards.' },
+  // Infrastructure / Risk
+  { id:'industrial_zones',  section:'infrastructure', label:'Industrial Zones',   desc:'General industrial land use areas.' },
+  { id:'military_zones',    section:'infrastructure', label:'Military Zones',     desc:'Military installations, bases and restricted areas.' },
+  { id:'commercial_zones',  section:'infrastructure', label:'Commercial Zones',   desc:'Commercial and retail land use areas.' },
+  { id:'ports_harbors',     section:'infrastructure', label:'Ports / Harbors',    desc:'Port areas, harbors and docking infrastructure.' },
+  { id:'airport_zones',     section:'infrastructure', label:'Airport Zones',      desc:'Aerodromes, runways, taxiways and apron areas.' },
+  { id:'landfill',          section:'infrastructure', label:'Landfill / Waste Sites', desc:'Landfill sites and waste disposal areas.' },
+  { id:'quarry',            section:'infrastructure', label:'Quarry / Mining',    desc:'Quarries and surface mining operations.' },
+  { id:'construction',      section:'infrastructure', label:'Construction Sites', desc:'Active construction and development zones.' },
+  { id:'power_stations',    section:'infrastructure', label:'Power Stations',     desc:'Power plants and generation facilities.' },
+  { id:'substations',       section:'infrastructure', label:'Power Substations',  desc:'Electrical substations and transformer stations.' },
+  { id:'pipelines',         section:'infrastructure', label:'Pipelines',          desc:'Gas, oil and water pipeline routes.' },
+  { id:'reservoirs',        section:'infrastructure', label:'Water Reservoirs',   desc:'Reservoirs and managed water storage bodies.' },
+  { id:'healthcare_zones',  section:'infrastructure', label:'Healthcare Areas',   desc:'Hospital campuses, clinics and medical facility zones.' },
+  { id:'education_zones',   section:'infrastructure', label:'Education Areas',    desc:'Schools, universities and educational campus zones.' },
+  { id:'emergency_services',section:'infrastructure', label:'Emergency Services', desc:'Fire stations, police stations and emergency response zones.' },
+  { id:'fuel_storage',      section:'infrastructure', label:'Fuel Storage / Depots', desc:'Storage tanks, fuel depots and petroleum facilities.' },
+  { id:'chemical_zones',    section:'infrastructure', label:'Chemical Industry',  desc:'Chemical plants, petrochemical and refinery zones.' },
+  { id:'nuclear',           section:'infrastructure', label:'Nuclear Facilities', desc:'Nuclear power plants and related installations.' },
+];
+
+const SECTION_COLORS = { natural:'#22c55e', infrastructure:'#f59e0b' };
+const SECTION_LABELS  = { natural:'NATURAL', infrastructure:'INFRA' };
+
+let _osmPinned = {}; // layer_id → { section, section_override }
+
+async function initOsmLibraryPage() {
+  const waitForP = setInterval(() => {
+    if (!window.AEGIS_PROJECT) return;
+    clearInterval(waitForP);
+    loadOsmPinnedState().then(() => renderOsmCatalog(OSM_CATALOG));
+  }, 100);
+}
+
+async function loadOsmPinnedState() {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  try {
+    const r = await axios.get(window.AEGIS_API + '/api/projects/' + p.id + '/pinned-layers');
+    _osmPinned = {};
+    (r.data || []).forEach(row => { _osmPinned[row.layer_id] = row; });
+  } catch { _osmPinned = {}; }
+}
+
+function filterOsmCatalog(q) {
+  const query   = (q || '').toLowerCase();
+  const section = document.getElementById('osm-lib-section-filter')?.value || '';
+  const pinState = document.getElementById('osm-lib-pin-filter')?.value || '';
+
+  const visible = OSM_CATALOG.filter(layer => {
+    if (query && !layer.label.toLowerCase().includes(query) && !layer.desc.toLowerCase().includes(query)) return false;
+    if (section && layer.section !== section) return false;
+    if (pinState === 'pinned'   && !_osmPinned[layer.id]) return false;
+    if (pinState === 'unpinned' && _osmPinned[layer.id])  return false;
+    return true;
+  });
+
+  renderOsmCatalog(visible);
+}
+
+function renderOsmCatalog(layers) {
+  const el = document.getElementById('osm-lib-catalog');
+  const cnt = document.getElementById('osm-lib-count');
+  if (!el) return;
+  if (cnt) cnt.textContent = layers.length + ' layer' + (layers.length !== 1 ? 's' : '');
+
+  if (!layers.length) {
+    el.innerHTML = `<div style="grid-column:1/-1;font-size:9px;color:var(--c-dim);letter-spacing:1px;padding:24px;text-align:center;">
+      No layers match the current filters.</div>`;
+    return;
+  }
+
+  el.innerHTML = layers.map(layer => {
+    const pin = _osmPinned[layer.id];
+    const effectiveSection = pin?.section_override || pin?.section || layer.section;
+    const sColor = SECTION_COLORS[effectiveSection] || '#5a6378';
+    const sLabel = SECTION_LABELS[effectiveSection] || effectiveSection.toUpperCase();
+    const isPinned = !!pin;
+
+    return `<div style="background:var(--c-card,#0e1220);border:1px solid ${isPinned ? sColor+'55' : 'var(--c-border)'};
+        padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="flex:1;">
+          <div style="font-size:10px;letter-spacing:1.5px;color:var(--c-text);font-weight:500;">${h(layer.label)}</div>
+          <div style="font-size:8px;color:var(--c-muted);letter-spacing:.5px;margin-top:3px;line-height:1.5;">${h(layer.desc)}</div>
+        </div>
+        <span style="font-size:7px;letter-spacing:1.5px;color:${sColor};border:1px solid ${sColor}44;
+          padding:2px 6px;white-space:nowrap;flex-shrink:0;">${sLabel}</span>
+      </div>
+
+      ${isPinned ? `
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:7px;letter-spacing:1px;color:var(--c-dim);">PANEL SECTION</span>
+        <select onchange="updateLayerSection('${layer.id}', this.value)"
+          style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);
+            font-family:var(--c-font,monospace);font-size:8px;padding:2px 6px;flex:1;">
+          <option value=""         ${!pin.section_override ? 'selected' : ''}>Default (${SECTION_LABELS[layer.section]})</option>
+          <option value="natural"  ${pin.section_override==='natural'        ? 'selected' : ''}>Natural Features</option>
+          <option value="infrastructure" ${pin.section_override==='infrastructure' ? 'selected' : ''}>Infrastructure</option>
+        </select>
+      </div>` : ''}
+
+      <div style="display:flex;gap:6px;">
+        <button onclick="togglePin('${layer.id}', '${layer.section}')"
+          style="flex:1;font-family:var(--c-font,monospace);font-size:8px;letter-spacing:1.5px;
+            padding:5px 10px;border:1px solid ${isPinned ? '#ef4444' : sColor};
+            color:${isPinned ? '#ef4444' : sColor};background:${isPinned ? 'rgba(239,68,68,.08)' : sColor+'11'};
+            cursor:pointer;transition:all .15s;">
+          ${isPinned ? 'UNPIN' : 'PIN TO PANEL'}
+        </button>
+        ${isPinned ? `<button onclick="clearLayerCache('${layer.id}', this)"
+          style="font-family:var(--c-font,monospace);font-size:8px;letter-spacing:1px;
+            padding:5px 8px;border:1px solid var(--c-border);color:var(--c-dim);background:transparent;cursor:pointer;">
+          CLEAR CACHE
+        </button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function togglePin(layerId, defaultSection) {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  const isPinned = !!_osmPinned[layerId];
+
+  try {
+    if (isPinned) {
+      await axios.delete(window.AEGIS_API + '/api/projects/' + p.id + '/pinned-layers/' + layerId);
+      delete _osmPinned[layerId];
+    } else {
+      await axios.post(window.AEGIS_API + '/api/projects/' + p.id + '/pinned-layers', { layer_id: layerId, section: defaultSection });
+      _osmPinned[layerId] = { layer_id: layerId, section: defaultSection, section_override: null };
+    }
+    filterOsmCatalog(document.getElementById('osm-lib-search')?.value || '');
+  } catch (err) {
+    alert('Failed: ' + (err.response?.data?.error || err.message));
+  }
+}
+
+async function updateLayerSection(layerId, sectionOverride) {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  try {
+    await axios.patch(window.AEGIS_API + '/api/projects/' + p.id + '/pinned-layers/' + layerId, {
+      section_override: sectionOverride || null
+    });
+    if (_osmPinned[layerId]) _osmPinned[layerId].section_override = sectionOverride || null;
+  } catch (err) {
+    alert('Failed: ' + (err.response?.data?.error || err.message));
+  }
+}
+
+async function clearLayerCache(layerId, btn) {
+  const p = window.AEGIS_PROJECT; if (!p) return;
+  const orig = btn.textContent;
+  btn.textContent = '...'; btn.disabled = true;
+  try {
+    await axios.delete(window.AEGIS_API + '/api/projects/' + p.id + '/osm-library/' + layerId + '/cache');
+    btn.textContent = 'CLEARED';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  } catch (err) {
+    btn.textContent = orig; btn.disabled = false;
+    alert('Failed: ' + err.message);
+  }
 }
 </script>
 </body>

@@ -274,6 +274,25 @@ body.tool-measure{cursor:crosshair!important;}
 .gis-btn-xs:hover{color:var(--c-text);border-color:var(--c-border2);}
 .gis-btn-del:hover{color:#f87171;border-color:#f87171;}
 
+/* ── Terrain mode toggle buttons ── */
+.terrain-mode-btn{
+  background:none;border:1px solid var(--c-border);color:var(--c-dim);
+  font-family:var(--font);font-size:7px;letter-spacing:1.5px;padding:2px 7px;cursor:pointer;
+  transition:all .15s;
+}
+.terrain-mode-btn.active{color:var(--c-amber);border-color:var(--c-amber);}
+.terrain-mode-btn:hover{color:var(--c-text);border-color:var(--c-border2);}
+.lp-select{
+  background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);
+  font-family:var(--font);font-size:8px;padding:3px 5px;cursor:pointer;
+}
+.infra-btn--full{
+  background:none;border:1px solid var(--c-border);color:var(--c-muted);
+  font-family:var(--font);font-size:8px;letter-spacing:1px;
+  padding:4px;cursor:pointer;text-align:center;transition:all .15s;
+}
+.infra-btn--full:hover{color:var(--c-text);border-color:var(--c-border2);}
+
 /* ── Search bar ── */
 .map-search-input {
   width:100%;background:var(--c-bg,#050810);
@@ -412,7 +431,8 @@ body.tool-measure{cursor:crosshair!important;}
         <button class="tool-btn"        id="tool-measure-dist"  onclick="setTool('measure-dist',this)"><span class="t-icon">⟷</span><span class="t-label">DIST</span></button>
         <button class="tool-btn"        id="tool-measure-area"  onclick="setTool('measure-area',this)"><span class="t-icon">⬜</span><span class="t-label">AREA</span></button>
         <button class="tool-btn"        id="tool-facilities"    onclick="setTool('facilities',this)"><span class="t-icon">⬡</span><span class="t-label">LAYERS</span></button>
-        <button class="tool-btn"        id="tool-aerial"        onclick="triggerOam()"><span class="t-icon">🛰</span><span class="t-label">AERIAL</span></button>
+        <button class="tool-btn"        id="tool-aerial"        onclick="triggerOam()"><span class="t-icon">&#9728;</span><span class="t-label">AERIAL</span></button>
+        <button class="tool-btn"        id="tool-select"        onclick="setTool('select',this)"><span class="t-icon">&#9638;</span><span class="t-label">SELECT</span></button>
       </div>
       <!-- Active draw color -->
       <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
@@ -528,6 +548,9 @@ body.tool-measure{cursor:crosshair!important;}
 
       </div>
 
+      <!-- Pinned infrastructure OSM layers -->
+      <div id="pinned-infra-list" style="display:flex;flex-direction:column;gap:4px;margin-top:4px;"></div>
+
       <div style="font-size:7px;color:#3a4155;margin-top:8px;letter-spacing:1px;line-height:1.5;">
         First load fetches from OSM and caches.<br>
         Power/Telecom fall back to facility graph if no OSM data.
@@ -565,19 +588,59 @@ body.tool-measure{cursor:crosshair!important;}
           </button>
           <button class="infra-reload" title="Reload" onclick="reloadNaturalLayer('sea_currents', document.getElementById('nat-btn-sea_currents'))">⟳</button>
         </div>
-        <div class="infra-row">
-          <button class="infra-btn" id="slope-toggle-btn"
-            onclick="toggleSlopeLayer(this)">
-            <span class="infra-line" style="background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);height:4px;"></span>
-            <span class="infra-lbl">SLOPE</span>
-          </button>
-          <a href="#" onclick="open3DView();return false;" class="infra-reload" title="3D view"
-            style="text-decoration:none;display:flex;align-items:center;justify-content:center;">3D</a>
+
+        <!-- TERRAIN: single toggle, slope/elevation mode -->
+        <div>
+          <div class="infra-row">
+            <button class="infra-btn" id="slope-toggle-btn" onclick="toggleSlopeLayer(this)">
+              <span class="infra-line" id="terrain-legend-bar" style="background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);height:4px;"></span>
+              <span class="infra-lbl">TERRAIN</span>
+            </button>
+            <a href="#" onclick="open3DView();return false;" class="infra-reload" title="3D view"
+              style="text-decoration:none;display:flex;align-items:center;justify-content:center;">3D</a>
+          </div>
+          <div style="display:flex;gap:4px;padding:3px 0 3px 28px;">
+            <button id="terrain-mode-slope" class="terrain-mode-btn active"
+              onclick="setTerrainMode('slope')">SLOPE</button>
+            <button id="terrain-mode-elev"  class="terrain-mode-btn"
+              onclick="setTerrainMode('elevation')">ELEVATION</button>
+          </div>
         </div>
+
+        <!-- Pinned natural OSM layers -->
+        <div id="pinned-natural-list" style="display:flex;flex-direction:column;gap:4px;"></div>
       </div>
-      <div style="font-size:7px;color:var(--c-dim);margin-top:6px;letter-spacing:1px;line-height:1.5;">
-        Slope: AWS Terrain Tiles, zoom ≥ 8.<br>
-        Green = flat, red = steep.
+
+      <div style="font-size:7px;color:#3a4155;margin-top:8px;letter-spacing:1px;line-height:1.5;">
+        Pin layers from the
+        <a id="osm-lib-link" href="#" onclick="openOsmLibraryPage();return false;"
+          style="color:#f59e0b;text-decoration:none;letter-spacing:1px;">OSM LIBRARY</a>
+        to add them here.
+      </div>
+    </div>
+
+    <!-- Land-use facility filter -->
+    <div class="p-section" id="landuse-filter-panel">
+      <div class="p-section-title">LAND USE FILTER</div>
+      <div style="font-size:7px;color:var(--c-dim);letter-spacing:1px;margin-bottom:6px;line-height:1.5;">
+        Filter facilities by proximity to a loaded OSM layer.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <select id="lu-filter-type" class="lp-select"
+          style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:8px;padding:4px 5px;">
+          <option value="">— load a layer first —</option>
+        </select>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;letter-spacing:1px;color:var(--c-muted);white-space:nowrap;">DIST (m)</span>
+          <input id="lu-filter-dist" type="number" value="500" min="50" max="10000" step="50"
+            style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:9px;padding:4px 6px;width:70px;">
+        </div>
+        <div style="display:flex;gap:4px;">
+          <button class="infra-btn infra-btn--full" style="flex:1;padding:5px;"
+            onclick="applyLandUseFilter()">FILTER</button>
+          <button class="infra-reload" title="Clear filter" onclick="clearLandUseFilter()">&#x2715;</button>
+        </div>
+        <div id="lu-filter-result" style="font-size:8px;color:var(--c-muted);letter-spacing:1px;"></div>
       </div>
     </div>
 
@@ -587,15 +650,48 @@ body.tool-measure{cursor:crosshair!important;}
         <span>CUSTOM LAYERS</span>
         <span style="font-size:7px;color:var(--c-dim);letter-spacing:1px;">GIS</span>
       </div>
-      <label class="gis-upload-btn" title="Upload GeoJSON, KML, PNG, JPG, GeoTIFF">
-        <input type="file" id="gis-upload-input" accept=".geojson,.json,.kml,.tif,.tiff,.png,.jpg,.jpeg"
+      <label class="gis-upload-btn" title="Upload GeoJSON, KML, PNG, JPG">
+        <input type="file" id="gis-upload-input" accept=".geojson,.json,.kml,.png,.jpg,.jpeg"
           onchange="handleLayerUpload(this)" style="display:none;">
         <span>+ UPLOAD FILE</span>
       </label>
       <div id="gis-layers-list" style="display:flex;flex-direction:column;gap:4px;margin-top:6px;"></div>
-      <div style="font-size:7px;color:var(--c-dim);margin-top:6px;letter-spacing:1px;line-height:1.5;">
-        Max 50 MB · GeoTIFF preview coming soon
+
+      <!-- Feature query panel (shown when a layer is selected) -->
+      <div id="feature-query-panel" style="display:none;margin-top:8px;border-top:1px solid var(--c-border);padding-top:8px;">
+        <div style="font-size:8px;letter-spacing:2px;color:var(--c-muted);margin-bottom:5px;">QUERY / FILTER LAYER</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <select id="fq-layer" class="lp-select" onchange="onQueryLayerChange(this.value)"
+            style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:8px;padding:3px 5px;">
+          </select>
+          <select id="fq-property" class="lp-select" onchange="onQueryPropertyChange(this.value)"
+            style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:8px;padding:3px 5px;">
+            <option value="">— select property —</option>
+          </select>
+          <div style="display:flex;gap:4px;">
+            <select id="fq-op" style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:8px;padding:3px 4px;width:52px;">
+              <option value="=">=</option><option value="!=">≠</option>
+              <option value=">">></option><option value=">=">≥</option>
+              <option value="<"><</option><option value="<=">≤</option>
+              <option value="contains">⊃</option>
+            </select>
+            <input id="fq-value" type="text" placeholder="value"
+              style="background:var(--c-bg);border:1px solid var(--c-border);color:var(--c-text);font-family:var(--font);font-size:8px;padding:3px 5px;flex:1;">
+          </div>
+          <div style="display:flex;gap:4px;">
+            <button class="infra-btn infra-btn--full" style="flex:1;padding:4px;"
+              onclick="runFeatureQuery()">FILTER</button>
+            <button class="infra-btn infra-btn--full" style="flex:1;padding:4px;"
+              onclick="runChoropleth()">CHOROPLETH</button>
+            <button class="infra-reload" onclick="clearFeatureQuery()" title="Clear">✕</button>
+          </div>
+          <div id="fq-result" style="font-size:8px;color:var(--c-muted);letter-spacing:.5px;line-height:1.4;"></div>
+        </div>
       </div>
+      <button style="font-size:8px;letter-spacing:1px;color:var(--c-muted);background:none;border:none;cursor:pointer;margin-top:5px;padding:2px 0;"
+        onclick="document.getElementById('feature-query-panel').style.display = document.getElementById('feature-query-panel').style.display === 'none' ? '' : 'none'">
+        ▶ QUERY / FILTER FEATURES
+      </button>
     </div>
 
   </div>
@@ -609,6 +705,33 @@ body.tool-measure{cursor:crosshair!important;}
   <div class="bb-item" style="flex:1;"><span id="bb-measure"></span></div>
   <div class="bb-item"><span class="bb-label">PROJECT</span><span class="bb-val" id="bb-project">---</span></div>
 </div>
+
+<!-- Selection action bar (shown when SELECT tool has active selection) -->
+<div id="selection-bar" style="display:none;position:fixed;bottom:36px;left:50%;transform:translateX(-50%);
+  background:var(--c-panel,rgba(11,15,28,.97));border:1px solid rgba(245,158,11,.5);
+  padding:8px 14px;display:none;align-items:center;gap:12px;z-index:2000;
+  font-family:'Roboto Mono',monospace;font-size:9px;letter-spacing:1px;pointer-events:all;">
+  <span id="sel-count" style="color:#f59e0b;font-weight:500;">0 SELECTED</span>
+  <span style="color:#3a4155;">|</span>
+  <button onclick="exportSelectionGeoJSON()"
+    style="background:none;border:1px solid #22c55e;color:#22c55e;font-family:inherit;font-size:8px;
+      letter-spacing:1.5px;padding:3px 10px;cursor:pointer;">
+    EXPORT GEOJSON
+  </button>
+  <button onclick="setSelectionAsPriority()"
+    style="background:none;border:1px solid #f59e0b;color:#f59e0b;font-family:inherit;font-size:8px;
+      letter-spacing:1.5px;padding:3px 10px;cursor:pointer;">
+    PRIORITY SCAN
+  </button>
+  <button onclick="clearSelection()"
+    style="background:none;border:1px solid #3a4155;color:#5a6378;font-family:inherit;font-size:8px;
+      letter-spacing:1.5px;padding:3px 8px;cursor:pointer;">
+    CLEAR
+  </button>
+</div>
+
+<!-- Rubber-band selection overlay canvas -->
+<canvas id="select-rubber-band" style="display:none;position:fixed;inset:0;pointer-events:none;z-index:1900;"></canvas>
 
 <!-- Marker form -->
 <div id="marker-form">
@@ -726,6 +849,7 @@ body.tool-measure{cursor:crosshair!important;}
 </button>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
 <script src="app-nav.js"></script>
 <script src="infra-layers.js"></script>
 <script src="natural-layers.js"></script>
@@ -817,6 +941,9 @@ const map = L.map('map', {
   minZoom: 2, maxZoom: 19,
   maxBounds: [[-90,-180],[90,180]],
   maxBoundsViscosity: 0.9,
+  rotate: true,       // leaflet-rotate: enables proper bearing without CSS hacks
+  rotateControl: false, // we have our own compass UI
+  touchRotate: false,
 }).setView([20, 0], 2);
 
 L.control.zoom({ position:'bottomright' }).addTo(map);
@@ -873,9 +1000,13 @@ const TOOL_HINTS = {
   'measure-dist':  'Click to add points. Double-click to finish.',
   'measure-area':  'Click to add vertices. Double-click to calculate.',
   'facilities':    'Facility overlay. Use risk filters to show/hide categories.',
+  'select':        'Drag to select features. Shift+click to add. Ctrl+click to deselect. Export or set as priority scan zone.',
 };
 
 function setTool(tool, btn) {
+  // Deactivate select tool if switching away
+  if (window._selectToolActive && tool !== 'select') _deactivateSelectTool();
+
   cancelDraw();
   S.activeTool = tool;
   document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
@@ -883,12 +1014,13 @@ function setTool(tool, btn) {
   else document.getElementById('tool-' + tool)?.classList.add('active');
   document.body.className = document.body.className
     .replace(/\btool-\S+/g, '').trim();
-  if (tool !== 'pan' && tool !== 'facilities') document.body.classList.add('tool-draw');
+  if (tool !== 'pan' && tool !== 'facilities' && tool !== 'select') document.body.classList.add('tool-draw');
   if (tool === 'marker') document.body.classList.add('tool-marker');
   if (tool.startsWith('measure')) document.body.classList.add('tool-measure');
   document.getElementById('tool-hint').textContent = TOOL_HINTS[tool] || '';
   document.getElementById('bb-tool').textContent   = tool.toUpperCase().replace(/-/g,' ');
   if (tool === 'facilities') reloadFacilities();
+  if (tool === 'select') _activateSelectTool();
 }
 
 // ── Map events ────────────────────────────────────────────────
@@ -1150,30 +1282,38 @@ function buildPopup(name, desc, color, lat, lng) {
 }
 
 function buildFacilityPopup(f) {
-  const RISK_COLORS = { critical:'#f87171', hazardous:'#fb923c', high:'#fbbf24', medium:'#60a5fa', low:'#4ade80' };
-  const c = RISK_COLORS[f.risk_level] || '#c8d0e0';
+  const RISK_COLS = { critical:'#f87171', hazardous:'#fb923c', high:'#fbbf24', medium:'#60a5fa', low:'#4ade80' };
+  const c  = RISK_COLS[f.risk_level] || '#c8d0e0';
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--c-panel').trim() || 'rgba(11,15,28,.97)';
+  const tx = getComputedStyle(document.documentElement).getPropertyValue('--c-text').trim()  || '#c8d0e0';
+  const brd= getComputedStyle(document.documentElement).getPropertyValue('--c-border').trim()|| 'rgba(255,255,255,0.08)';
+  const p  = window.AEGIS_PROJECT;
+  const graphHref = p ? `app-relations.html?project=${p.id}&focus=${encodeURIComponent(f.id||'')}` : '#';
   return `<div style="
     font-family:'Roboto Mono',monospace;
-    background:#0b0f1c;
-    color:#c8d0e0;
-    border:1px solid rgba(255,255,255,0.12);
-    border-left:3px solid ${c};
-    padding:12px 14px;
-    min-width:180px;
-    max-width:280px;
-    font-size:10px;
-    line-height:1.6;
-  ">
+    background:${bg};color:${tx};
+    border:1px solid ${brd};border-left:3px solid ${c};
+    padding:12px 14px;min-width:180px;max-width:280px;font-size:10px;line-height:1.6;">
     <div style="font-weight:700;font-size:12px;letter-spacing:1px;color:#fff;margin-bottom:4px;">${h(f.name||'Unknown')}</div>
     <div style="margin-bottom:6px;">
       <span style="color:${c};font-size:8px;letter-spacing:2px;font-weight:700;padding:1px 5px;border:1px solid ${c};background:${c}1a;">${(f.risk_level||'?').toUpperCase()}</span>
       <span style="color:#5a6378;font-size:9px;margin-left:8px;">${h(f.category_name||f.category||'')}</span>
     </div>
     ${f.address ? `<div style="color:#5a6378;font-size:9px;margin-bottom:4px;">📍 ${h(f.address)}</div>` : ''}
-    <div style="font-size:8px;color:#3a4155;letter-spacing:.5px;margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px;">
+    <div style="font-size:8px;color:#3a4155;letter-spacing:.5px;margin-top:6px;border-top:1px solid ${brd};padding-top:6px;">
       ${parseFloat(f.latitude).toFixed(5)}° / ${parseFloat(f.longitude).toFixed(5)}°
     </div>
     <div style="font-size:8px;color:#3a4155;letter-spacing:.5px;">SOURCE: ${(f.source||'—').toUpperCase()}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      <a href="${graphHref}" target="_blank"
+        style="font-family:'Roboto Mono',monospace;font-size:8px;letter-spacing:1px;
+          padding:3px 8px;border:1px solid #818cf8;color:#818cf8;text-decoration:none;
+          background:rgba(129,140,248,.08);transition:all .15s;"
+        onmouseover="this.style.background='rgba(129,140,248,.2)'"
+        onmouseout="this.style.background='rgba(129,140,248,.08)'">
+        ◈ VIEW IN GRAPH
+      </a>
+    </div>
   </div>`;
 }
 
@@ -1697,59 +1837,70 @@ function initCompass() {
   const el = document.getElementById('map-compass');
   if (!el) return;
 
-  // Click resets to north
-  el.addEventListener('click', () => {
-    mapBearing = 0;
-    updateCompassVisual(0);
-    map.getContainer().style.transform = '';
-    map.getContainer().style.transformOrigin = '';
+  // Click: reset north
+  el.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('#map-compass') && !_compassDragging) {
+      mapBearing = 0;
+      _applyBearing(0);
+    }
   });
 
-  // Drag on compass rotates the map
-  let dragging = false, startAngle = 0, startBearing = 0;
+  // Drag: rotate the map using leaflet-rotate setBearing()
+  let _compassDragging = false;
+  let startAngle = 0, startBearing = 0;
 
   el.addEventListener('mousedown', e => {
-    dragging = true;
+    _compassDragging = true;
     const r = el.getBoundingClientRect();
-    const cx = r.left + r.width/2, cy = r.top + r.height/2;
-    startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    startAngle = Math.atan2(e.clientY - (r.top + r.height/2), e.clientX - (r.left + r.width/2)) * 180 / Math.PI;
     startBearing = mapBearing;
     e.preventDefault();
+    e.stopPropagation();
   });
 
   document.addEventListener('mousemove', e => {
-    if (!dragging) return;
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width/2, cy = r.top + r.height/2;
-    const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
-    mapBearing = (startBearing + (angle - startAngle) + 360) % 360;
-    updateCompassVisual(mapBearing);
-    rotateMap(mapBearing);
+    if (!_compassDragging) return;
+    const r   = el.getBoundingClientRect();
+    const ang = Math.atan2(e.clientY - (r.top + r.height/2), e.clientX - (r.left + r.width/2)) * 180 / Math.PI;
+    mapBearing = ((startBearing + (ang - startAngle)) % 360 + 360) % 360;
+    _applyBearing(mapBearing);
   });
 
-  document.addEventListener('mouseup', () => { dragging = false; });
+  document.addEventListener('mouseup', () => { _compassDragging = false; });
+
+  // Keep compass in sync if map bearing changes by other means
+  map.on('rotate', e => {
+    mapBearing = e.bearing || 0;
+    _syncCompassVisual(mapBearing);
+  });
 }
 
-function updateCompassVisual(deg) {
+function _applyBearing(deg) {
+  // leaflet-rotate: rotates tiles + overlays correctly, HTML panels unaffected
+  if (map.setBearing) {
+    map.setBearing(deg);
+  }
+  _syncCompassVisual(deg);
+}
+
+function _syncCompassVisual(deg) {
   const svg = document.getElementById('compass-svg');
   if (svg) svg.style.transform = `rotate(${deg}deg)`;
 }
 
-function rotateMap(deg) {
-  const container = map.getContainer();
-  const w = container.offsetWidth, h = container.offsetHeight;
-  container.style.transformOrigin = `${w/2}px ${h/2}px`;
-  container.style.transform = `rotate(${-deg}deg)`;
-  // Invalidate map so tiles reload
-  setTimeout(() => map.invalidateSize(), 50);
-}
+// legacy alias kept for any existing call sites
+function updateCompassVisual(deg) { _syncCompassVisual(deg); }
+function rotateMap(deg)           { _applyBearing(deg); }
 
 // ── Archive satellite layer (NASA GIBS / MODIS) ───────────────
-let _archiveLayer = null;
+let _archiveActive = false;
 
 function openArchiveSelector() {
   const sel = document.getElementById('archive-selector');
   if (!sel) return;
+  // Switch base to satellite context if not already on an imagery layer
+  if (S.activeLayer !== 'satellite') setLayer('satellite', null);
+  _archiveActive = true;
   sel.style.display = 'flex';
   const yearInput = document.getElementById('archive-year');
   updateArchiveLayer(yearInput.value);
@@ -1759,23 +1910,23 @@ function updateArchiveLayer(year) {
   document.getElementById('archive-year-label').textContent = year;
   const date = year + '-06-01'; // mid-year snapshot
 
-  // Remove existing archive layer
-  if (_archiveLayer) { map.removeLayer(_archiveLayer); _archiveLayer = null; }
-
-  // NASA GIBS WMTS — MODIS Terra True Color (2000-present, 250m)
-  const gibs = parseInt(year) >= 2013
-    ? 'MODIS_Terra_CorrectedReflectance_TrueColor'  // best quality
-    : 'MODIS_Terra_CorrectedReflectance_TrueColor'; // same, available from 2000
-
-  _archiveLayer = L.tileLayer(
-    `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${gibs}/default/${date}/GoogleMapsCompatible/{z}/{y}/{x}.jpg`,
-    { maxZoom:9, attribution:'NASA GIBS · MODIS Terra · ' + year, opacity:0.85, zIndex:500 }
+  // Replace the base tile layer with GIBS historical imagery
+  if (S.leafletLayer) { map.removeLayer(S.leafletLayer); S.leafletLayer = null; }
+  S.leafletLayer = L.tileLayer(
+    `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/${date}/GoogleMapsCompatible/{z}/{y}/{x}.jpg`,
+    { maxZoom: 9, attribution: 'NASA GIBS · MODIS Terra · ' + year }
   ).addTo(map);
 }
 
 function closeArchiveLayer() {
-  if (_archiveLayer) { map.removeLayer(_archiveLayer); _archiveLayer = null; }
+  _archiveActive = false;
   document.getElementById('archive-selector').style.display = 'none';
+  // Restore original base tile layer
+  if (S.leafletLayer) { map.removeLayer(S.leafletLayer); S.leafletLayer = null; }
+  const cfg = TILE_LAYERS[S.activeLayer] || TILE_LAYERS['satellite'];
+  S.leafletLayer = L.tileLayer(cfg.url, {
+    attribution: cfg.attr, maxZoom: cfg.maxZoom || 19, subdomains: cfg.subdomains || 'abc',
+  }).addTo(map);
 }
 
 // ── OAM Aerial Image Box ──────────────────────────────────────
@@ -1824,7 +1975,7 @@ async function openOamBox(lat, lng) {
     const img  = document.getElementById('oam-img');
     const meta = document.getElementById('oam-meta');
 
-    // Route image through our proxy to avoid CORS/mixed-content blocks
+    // Route thumbnail through our proxy to avoid CORS/mixed-content blocks
     const proxiedUrl = window.AEGIS_API + '/api/aerial/thumbnail?url=' + encodeURIComponent(best.thumbnail);
     img.src = proxiedUrl;
     img.onload = () => {
@@ -1839,11 +1990,19 @@ async function openOamBox(lat, lng) {
       ? new Date(best.acquisition_start).toLocaleDateString('en-GB', { year:'numeric', month:'short', day:'2-digit' })
       : '?';
     const sourceLabel = source === 'oam' ? 'OpenAerialMap' : 'NASA GIBS (fallback)';
+    const gsdText = best.gsd ? `GSD: ${parseFloat(best.gsd).toFixed(2)}m` : '';
+
+    // If OAM provides a TMS tile URL, offer a high-res layer button
+    const tmsBtn = (source === 'oam' && best.tms)
+      ? `<button class="app-btn app-btn--sm" style="margin-top:4px;width:100%;"
+           onclick="loadAerialTmsLayer('${best.tms.replace(/'/g,"\\'")}')">LOAD HI-RES LAYER</button>`
+      : '';
 
     meta.innerHTML = `
       <div style="font-weight:700;margin-bottom:2px;">${h(best.title || 'Aerial Image')}</div>
-      <div>📅 ${acqDate} · ${h(best.provider || sourceLabel)}</div>
-      ${best.gsd ? `<div>GSD: ${parseFloat(best.gsd).toFixed(2)}m · ${h(sourceLabel)}</div>` : `<div>${h(sourceLabel)}</div>`}
+      <div>${acqDate} · ${h(best.provider || sourceLabel)}</div>
+      ${gsdText ? `<div>${gsdText} · ${h(sourceLabel)}</div>` : `<div>${h(sourceLabel)}</div>`}
+      ${tmsBtn}
     `;
     meta.style.display = '';
     document.getElementById('oam-box-title').textContent = 'AERIAL — ' + acqDate;
@@ -2018,10 +2177,456 @@ window.addEventListener('DOMContentLoaded', () => {
     // Init custom GIS layers + load persisted user uploads
     initCustomGis(map);
     loadCustomGisLayers();
+
+    // Load pinned OSM layers into side panel sections
+    loadPinnedLayers();
   }, 150);
 });
 
-// ── 3D view (MapLibre GL JS + OSM building extrusion + DEM) ──────
+// ── OSM Library page navigation ───────────────────────────────
+function openOsmLibraryPage() {
+  const p = window.AEGIS_PROJECT;
+  if (p) window.location.href = `app-pages.html?project=${p.id}&page=osm-library`;
+}
+
+// ── Land-use facility filter (uses loaded OSM library layers) ─
+let _luFilterHighlight = null;
+
+async function applyLandUseFilter() {
+  const layerId  = document.getElementById('lu-filter-type').value;
+  const distM    = parseInt(document.getElementById('lu-filter-dist').value) || 500;
+  const statusEl = document.getElementById('lu-filter-result');
+
+  if (!layerId) { statusEl.textContent = 'Enable a layer in the panel first, then select it here.'; return; }
+
+  const entry = typeof _osmLibLayers !== 'undefined' ? _osmLibLayers.get(layerId) : null;
+  if (!entry?.visible || !entry.leafletLayer) {
+    statusEl.textContent = 'Selected layer is not currently visible on the map.'; return;
+  }
+
+  statusEl.style.color = 'var(--c-muted)';
+  statusEl.textContent = 'Filtering...';
+
+  // Collect all polygon features from the loaded layer
+  const polygons = [];
+  entry.leafletLayer.eachLayer(l => {
+    const g = l.feature?.geometry;
+    if (!g) return;
+    if (g.type === 'Polygon') polygons.push(g.coordinates[0]);
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(poly => polygons.push(poly[0]));
+  });
+
+  if (!polygons.length) {
+    statusEl.textContent = 'No polygon features found in this layer.'; return;
+  }
+
+  const distDeg = distM / 111320;
+
+  // Point-in-polygon + nearest-vertex distance check (client-side)
+  const matched = (S.facilities || []).filter(fac => {
+    const fLat = parseFloat(fac.latitude), fLng = parseFloat(fac.longitude);
+    if (isNaN(fLat) || isNaN(fLng)) return false;
+    for (const ring of polygons) {
+      // Bbox pre-filter
+      const lngs = ring.map(c=>c[0]), lats = ring.map(c=>c[1]);
+      if (fLng < Math.min(...lngs)-distDeg || fLng > Math.max(...lngs)+distDeg ||
+          fLat < Math.min(...lats)-distDeg || fLat > Math.max(...lats)+distDeg) continue;
+      // Point-in-polygon
+      if (_clientPtInPoly([fLng,fLat], ring)) return true;
+      // Nearest vertex distance
+      const minDist = Math.min(...ring.map(v => _haversineM(fLat,fLng,v[1],v[0])));
+      if (minDist <= distM) return true;
+    }
+    return false;
+  });
+
+  if (_luFilterHighlight) { map.removeLayer(_luFilterHighlight); _luFilterHighlight = null; }
+
+  if (!matched.length) {
+    statusEl.textContent = `No facilities within ${distM}m of layer.`; return;
+  }
+
+  const matchedIds = new Set(matched.map(m => m.id));
+  const def = typeof OSM_LIBRARY !== 'undefined' ? OSM_LIBRARY.find(d => d.id === layerId) : null;
+  const layerLabel = def?.label || layerId;
+
+  const markers = matched.map(f => {
+    const circle = L.circleMarker([parseFloat(f.latitude), parseFloat(f.longitude)], {
+      radius: 10, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 0.35, weight: 2
+    });
+    circle.bindTooltip(
+      `<div style="font-family:Roboto Mono,monospace;font-size:9px;padding:3px 6px;">
+        <b>${h(f.name || f.category)}</b><br>
+        <span style="color:#f59e0b;">Within ${distM}m of ${h(layerLabel)}</span>
+      </div>`, { sticky: true }
+    );
+    return circle;
+  });
+  _luFilterHighlight = L.layerGroup(markers).addTo(map);
+
+  facilityGroup.eachLayer(l => {
+    const fid = l.options?.facilityId || l._facilityId;
+    if (fid) { const el = l.getElement?.(); if (el) el.style.opacity = matchedIds.has(fid) ? '1' : '0.18'; }
+  });
+
+  statusEl.style.color = '#f59e0b';
+  statusEl.textContent = `${matched.length} facilities within ${distM}m`;
+
+  if (matched.length) {
+    map.fitBounds(L.latLngBounds(matched.map(m => [parseFloat(m.latitude), parseFloat(m.longitude)])), { padding:[40,40] });
+  }
+}
+
+function _clientPtInPoly(pt, ring) {
+  let inside = false;
+  for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
+    const [xi,yi]=ring[i],[xj,yj]=ring[j];
+    if (((yi>pt[1])!==(yj>pt[1]))&&(pt[0]<(xj-xi)*(pt[1]-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+function _haversineM(lat1,lng1,lat2,lng2) {
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function clearLandUseFilter() {
+  if (_luFilterHighlight) { map.removeLayer(_luFilterHighlight); _luFilterHighlight = null; }
+  facilityGroup.eachLayer(l => { const el = l.getElement?.(); if (el) el.style.opacity = ''; });
+  document.getElementById('lu-filter-result').textContent = '';
+  document.getElementById('lu-filter-type').value = '';
+}
+
+// ── SELECT tool ───────────────────────────────────────────────
+window._selectToolActive = false;
+const _selection = new Map(); // key → { feature, leafletLayer, originalStyle, sourceLabel }
+let   _rubberStart  = null;
+let   _rubberCanvas = null;
+let   _rubberCtx    = null;
+
+function _initSelectTool() {
+  _rubberCanvas = document.getElementById('select-rubber-band');
+  if (_rubberCanvas) _rubberCtx = _rubberCanvas.getContext('2d');
+}
+
+function _activateSelectTool() {
+  window._selectToolActive = true;
+  map.dragging.disable();
+  map.getContainer().style.cursor = 'crosshair';
+  map.on('mousedown', _onSelectMouseDown);
+  map.on('mousemove', _onSelectMouseMove);
+  map.on('mouseup',   _onSelectMouseUp);
+}
+
+function _deactivateSelectTool() {
+  window._selectToolActive = false;
+  map.dragging.enable();
+  map.getContainer().style.cursor = '';
+  map.off('mousedown', _onSelectMouseDown);
+  map.off('mousemove', _onSelectMouseMove);
+  map.off('mouseup',   _onSelectMouseUp);
+  _hideRubberBand();
+}
+
+function _onSelectMouseDown(e) {
+  if (e.originalEvent.button !== 0) return;
+  _rubberStart = map.latLngToContainerPoint(e.latlng);
+  if (_rubberCanvas) {
+    _rubberCanvas.width  = map.getContainer().clientWidth;
+    _rubberCanvas.height = map.getContainer().clientHeight;
+    _rubberCanvas.style.display = 'block';
+  }
+}
+
+function _onSelectMouseMove(e) {
+  if (!_rubberStart) return;
+  const cur = map.latLngToContainerPoint(e.latlng);
+  if (!_rubberCtx) return;
+  _rubberCtx.clearRect(0, 0, _rubberCanvas.width, _rubberCanvas.height);
+  _rubberCtx.strokeStyle = '#f59e0b';
+  _rubberCtx.lineWidth   = 1.5;
+  _rubberCtx.setLineDash([4, 3]);
+  _rubberCtx.fillStyle   = 'rgba(245,158,11,0.06)';
+  const x = Math.min(_rubberStart.x, cur.x), y = Math.min(_rubberStart.y, cur.y);
+  const w = Math.abs(cur.x - _rubberStart.x), hh = Math.abs(cur.y - _rubberStart.y);
+  _rubberCtx.fillRect(x,y,w,hh);
+  _rubberCtx.strokeRect(x,y,w,hh);
+}
+
+function _onSelectMouseUp(e) {
+  if (!_rubberStart) return;
+  const end = map.latLngToContainerPoint(e.latlng);
+  _hideRubberBand();
+
+  // If tiny drag (< 6px) treat as click — handled by onSelectFeatureClick
+  const dx = Math.abs(end.x - _rubberStart.x), dy = Math.abs(end.y - _rubberStart.y);
+  _rubberStart = null;
+  if (dx < 6 && dy < 6) return;
+
+  // Rubber-band: compute LatLng bounds
+  const p1 = map.containerPointToLatLng(L.point(Math.min(e.containerPoint.x, end.x), Math.min(e.containerPoint.y, end.y)));
+  const p2 = map.containerPointToLatLng(L.point(Math.max(e.containerPoint.x, end.x), Math.max(e.containerPoint.y, end.y)));
+  const bounds = L.latLngBounds(p1, p2);
+
+  const addToSel = e.originalEvent.shiftKey;
+  if (!addToSel) _clearSelectionHighlights();
+
+  // Select features from loaded OSM library layers
+  if (typeof _osmLibLayers !== 'undefined') {
+    _osmLibLayers.forEach((entry, layerId) => {
+      if (!entry.visible || !entry.leafletLayer) return;
+      entry.leafletLayer.eachLayer(l => {
+        const g = l.feature?.geometry;
+        if (!g) return;
+        const centroid = _geometryCentroid(g);
+        if (centroid && bounds.contains(centroid)) {
+          _addToSelection(layerId + '|' + (l.feature?.properties?.osm_id || Math.random()), l.feature, l, entry.def?.label || layerId);
+        }
+      });
+    });
+  }
+
+  // Select facilities within bounds
+  (S.facilities || []).forEach(fac => {
+    const ll = L.latLng(parseFloat(fac.latitude), parseFloat(fac.longitude));
+    if (bounds.contains(ll)) {
+      _addToSelection('fac|' + fac.id, { type:'Feature', geometry:{type:'Point',coordinates:[parseFloat(fac.longitude),parseFloat(fac.latitude)]}, properties:fac }, null, 'Facility');
+    }
+  });
+
+  _updateSelectionBar();
+}
+
+function onSelectFeatureClick(ev, feature, leafletLayer, sourceLabel) {
+  if (!window._selectToolActive) return;
+  L.DomEvent.stopPropagation(ev);
+  const key = sourceLabel + '|' + (feature?.properties?.osm_id || Math.random());
+  if (ev.originalEvent?.ctrlKey || ev.originalEvent?.metaKey) {
+    _removeFromSelection(key, leafletLayer);
+  } else if (ev.originalEvent?.shiftKey) {
+    _addToSelection(key, feature, leafletLayer, sourceLabel);
+  } else {
+    _clearSelectionHighlights();
+    _addToSelection(key, feature, leafletLayer, sourceLabel);
+  }
+  _updateSelectionBar();
+}
+
+function _addToSelection(key, feature, leafletLayer, sourceLabel) {
+  if (_selection.has(key)) return;
+  const originalStyle = leafletLayer ? {
+    color:       leafletLayer.options?.color,
+    fillColor:   leafletLayer.options?.fillColor,
+    weight:      leafletLayer.options?.weight,
+    fillOpacity: leafletLayer.options?.fillOpacity,
+  } : null;
+  if (leafletLayer?.setStyle) leafletLayer.setStyle({ color:'#f59e0b', fillColor:'#f59e0b', weight:3, fillOpacity:0.4 });
+  _selection.set(key, { feature, leafletLayer, originalStyle, sourceLabel });
+}
+
+function _removeFromSelection(key, leafletLayer) {
+  const entry = _selection.get(key);
+  if (!entry) return;
+  if (entry.leafletLayer?.setStyle && entry.originalStyle) entry.leafletLayer.setStyle(entry.originalStyle);
+  _selection.delete(key);
+}
+
+function _clearSelectionHighlights() {
+  _selection.forEach(entry => {
+    if (entry.leafletLayer?.setStyle && entry.originalStyle) entry.leafletLayer.setStyle(entry.originalStyle);
+  });
+  _selection.clear();
+}
+
+function clearSelection() {
+  _clearSelectionHighlights();
+  _updateSelectionBar();
+}
+
+function _geometryCentroid(g) {
+  if (g.type === 'Point') return L.latLng(g.coordinates[1], g.coordinates[0]);
+  if (g.type === 'Polygon' && g.coordinates[0]?.length) {
+    const ring = g.coordinates[0];
+    const lat = ring.reduce((s,c)=>s+c[1],0)/ring.length;
+    const lng = ring.reduce((s,c)=>s+c[0],0)/ring.length;
+    return L.latLng(lat,lng);
+  }
+  if (g.type === 'MultiPolygon' && g.coordinates[0]?.[0]?.length) {
+    return _geometryCentroid({ type:'Polygon', coordinates: g.coordinates[0] });
+  }
+  return null;
+}
+
+function _hideRubberBand() {
+  if (_rubberCanvas) { _rubberCanvas.style.display='none'; }
+  if (_rubberCtx)    { _rubberCtx.clearRect(0,0,_rubberCanvas?.width||0,_rubberCanvas?.height||0); }
+}
+
+function _updateSelectionBar() {
+  const bar = document.getElementById('selection-bar');
+  const cnt = document.getElementById('sel-count');
+  if (!bar) return;
+  if (_selection.size === 0) {
+    bar.style.display = 'none';
+  } else {
+    bar.style.display = 'flex';
+    if (cnt) cnt.textContent = _selection.size + ' SELECTED';
+  }
+}
+
+function exportSelectionGeoJSON() {
+  const features = [];
+  _selection.forEach(entry => {
+    if (entry.feature) features.push(entry.feature);
+  });
+  if (!features.length) return;
+  const geojson = JSON.stringify({ type:'FeatureCollection', features }, null, 2);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([geojson], { type:'application/json' }));
+  const p = window.AEGIS_PROJECT;
+  a.download = 'selection_' + (p?.name||'aegis').replace(/\s/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.geojson';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function setSelectionAsPriority() {
+  if (!_selection.size) return;
+  const polys = [];
+  _selection.forEach(entry => {
+    const g = entry.feature?.geometry;
+    if (!g) return;
+    if (g.type === 'Polygon') polys.push(g);
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(c => polys.push({ type:'Polygon', coordinates:c }));
+    else if (g.type === 'Point') {
+      const [lng,lat] = g.coordinates;
+      const d = 0.005;
+      polys.push({ type:'Polygon', coordinates:[[[lng-d,lat-d],[lng+d,lat-d],[lng+d,lat+d],[lng-d,lat+d],[lng-d,lat-d]]] });
+    }
+  });
+  if (!polys.length) return;
+  window._priorityScanPolygons = polys;
+  const info = document.getElementById('lu-filter-result') || document.getElementById('bb-measure');
+  if (info) { info.textContent = _selection.size + ' zone(s) set as priority scan area'; }
+  alert(_selection.size + ' selection zone(s) marked as priority scan area. Start a scan to use them.');
+}
+
+document.addEventListener('DOMContentLoaded', _initSelectTool);
+
+// ── Feature query panel (for uploaded custom layers) ──────────
+function onQueryLayerChange(layerId) {
+  const fqProp = document.getElementById('fq-property');
+  fqProp.innerHTML = '<option value="">— select property —</option>';
+  if (!layerId || typeof _customLayers === 'undefined') return;
+
+  const entry = _customLayers.get(layerId);
+  if (!entry?.leafletLayer?.getLayers) return;
+
+  // Collect all property keys from features
+  const keys = new Set();
+  entry.leafletLayer.getLayers().forEach(l => {
+    Object.keys(l.feature?.properties || {}).forEach(k => keys.add(k));
+  });
+  [...keys].sort().forEach(k => {
+    const opt = document.createElement('option');
+    opt.value = k; opt.textContent = k;
+    fqProp.appendChild(opt);
+  });
+}
+
+function onQueryPropertyChange(prop) {
+  // Preview sample values
+  const layerId = document.getElementById('fq-layer').value;
+  const res     = document.getElementById('fq-result');
+  if (!prop || !layerId) { res.textContent = ''; return; }
+  const entry = _customLayers.get(layerId);
+  if (!entry?.leafletLayer?.getLayers) return;
+  const vals = [...new Set(
+    entry.leafletLayer.getLayers()
+      .map(l => l.feature?.properties?.[prop])
+      .filter(v => v !== undefined && v !== null)
+      .map(String)
+      .slice(0, 8)
+  )];
+  res.textContent = `Samples: ${vals.join(', ')}${vals.length === 8 ? '…' : ''}`;
+}
+
+function populateQueryLayerSelect() {
+  const sel = document.getElementById('fq-layer');
+  if (!sel || typeof _customLayers === 'undefined') return;
+  sel.innerHTML = '';
+  _customLayers.forEach((entry, id) => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = entry.meta.name;
+    sel.appendChild(opt);
+  });
+  if (sel.options.length) onQueryLayerChange(sel.value);
+}
+
+function runFeatureQuery() {
+  const layerId  = document.getElementById('fq-layer').value;
+  const property = document.getElementById('fq-property').value;
+  const op       = document.getElementById('fq-op').value;
+  const value    = document.getElementById('fq-value').value;
+  const res      = document.getElementById('fq-result');
+
+  if (!layerId) { res.textContent = 'Select a layer first.'; return; }
+  if (!property) { res.textContent = 'Select a property to filter on.'; return; }
+
+  applyLayerFilter(layerId, property, op, value);
+
+  // Count visible features
+  const entry = _customLayers.get(layerId);
+  if (entry?.leafletLayer?.getLayers) {
+    let visible = 0;
+    entry.leafletLayer.getLayers().forEach(l => {
+      const raw  = l.feature?.properties?.[property];
+      const v    = parseFloat(raw);
+      let show   = true;
+      switch (op) {
+        case '=':   show = String(raw) === String(value); break;
+        case '!=':  show = String(raw) !== String(value); break;
+        case '>':   show = !isNaN(v) && v >  parseFloat(value); break;
+        case '>=':  show = !isNaN(v) && v >= parseFloat(value); break;
+        case '<':   show = !isNaN(v) && v <  parseFloat(value); break;
+        case '<=':  show = !isNaN(v) && v <= parseFloat(value); break;
+        case 'contains': show = String(raw).toLowerCase().includes(value.toLowerCase()); break;
+      }
+      if (show) visible++;
+    });
+    res.textContent = `✓ ${visible} / ${entry.leafletLayer.getLayers().length} features match`;
+  }
+}
+
+function runChoropleth() {
+  const layerId  = document.getElementById('fq-layer').value;
+  const property = document.getElementById('fq-property').value;
+  if (!layerId || !property) {
+    document.getElementById('fq-result').textContent = 'Select layer and property first.';
+    return;
+  }
+  renderChoropleth(layerId, property);
+  document.getElementById('fq-result').textContent = `Choropleth: ${property}`;
+}
+
+function clearFeatureQuery() {
+  const layerId = document.getElementById('fq-layer').value;
+  if (layerId) clearLayerFilter(layerId);
+  if (layerId) resetChoropleth(layerId);
+  document.getElementById('fq-value').value = '';
+  document.getElementById('fq-result').textContent = '';
+}
+
+// Show query panel and populate when a layer is uploaded
+const _origRenderList = typeof renderCustomLayerList !== 'undefined' ? renderCustomLayerList : null;
+function renderCustomLayerList() {
+  if (_origRenderList) _origRenderList();
+  if (typeof _customLayers !== 'undefined' && _customLayers.size > 0) {
+    document.getElementById('feature-query-panel').style.display = '';
+    populateQueryLayerSelect();
+  }
+}
 function open3DView() {
   const p = window.AEGIS_PROJECT;
   if (!p) { alert('No project loaded.'); return; }

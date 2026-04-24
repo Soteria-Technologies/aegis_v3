@@ -63,9 +63,10 @@
       { id: 'map',              label: 'MAP',              icon: '◉', disabled: false },
       { id: 'facilities',       label: 'FACILITY DATABASE', icon: '⬡', disabled: false },
       { id: 'risk-inventory',   label: 'RISK INVENTORY',   icon: '⚠', disabled: true  },
-      { id: 'entities-network', label: 'ENTITIES NETWORK', icon: '◈', disabled: true  },
-      { id: 'risk-network',     label: 'RISK NETWORK',     icon: '⬡', disabled: true  },
-      { id: 'settings',         label: 'SETTINGS',         icon: '⚙', disabled: false },
+      { id: 'relationships',    label: 'REL. GRAPH',       icon: '◈', disabled: false, external: true },
+      { id: 'osm-library',      label: 'OSM LIBRARY',      icon: '&#9632;', disabled: false },
+      { id: 'risk-network',     label: 'RISK NETWORK',     icon: '&#11041;', disabled: true  },
+      { id: 'settings',         label: 'SETTINGS',         icon: '&#9881;', disabled: false },
     ];
 
     const currentId = window.location.pathname.includes('app-map') ? 'map' : activePage;
@@ -73,7 +74,13 @@
     navEl.innerHTML = pages.map(p => {
       const active   = p.id === currentId ? 'nav-btn--active' : '';
       const disabled = p.disabled ? 'nav-btn--disabled nav-btn--stub' : '';
-      const click    = p.disabled ? '' : `onclick="window.AEGIS_NAV.navTo('${p.id}')"`;
+      if (p.external && !p.disabled) {
+        return `<button class="nav-btn ${active}" data-page="${p.id}"
+          onclick="window.open('app-relations.html?project=${projectId}','_blank')">
+          <span class="nav-icon">${p.icon}</span> ${p.label}
+        </button>`;
+      }
+      const click = p.disabled ? '' : `onclick="window.AEGIS_NAV.navTo('${p.id}')"`;
       return `<button class="nav-btn ${active} ${disabled}" data-page="${p.id}" ${click}>
         <span class="nav-icon">${p.icon}</span> ${p.label}
       </button>`;
@@ -201,11 +208,19 @@
           panel.style.opacity    = '';
           panel.style.transition = '';
           panel.style.borderColor = '';
-          // Reset bar color for next scan
           if (fill) { fill.style.background = ''; }
         }, 600);
       }
     }, 6000);
+
+    // Incremental relationship graph recompute (background, silent)
+    if (projectId) {
+      setTimeout(() => {
+        axios.post(`${API}/api/projects/${projectId}/relationships/compute`)
+          .then(r => console.info(`[REL] Graph updated post-scan: ${r.data.nodes} nodes, ${r.data.edges} edges`))
+          .catch(() => {});
+      }, 3000); // slight delay to let DB settle
+    }
   }
 
   function updateScanUI(s) {

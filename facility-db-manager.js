@@ -189,6 +189,85 @@ class FacilityDatabaseManager {
         feature_count  INTEGER,
         uploaded_by    TEXT,
         created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /* ── Relationship graph ────────────────────────────────────────
+       * Nodes: every entity in the graph — facility, infra segment,
+       * or natural hazard zone. Facilities link by ID to the facilities
+       * table. Natural hazard nodes are standalone (no FK).
+       */
+      `CREATE TABLE IF NOT EXISTS rel_nodes (
+        id            TEXT PRIMARY KEY,
+        node_type     TEXT NOT NULL CHECK(node_type IN ('facility','infrastructure','natural_hazard')),
+        entity_id     TEXT,
+        name          TEXT NOT NULL,
+        category      TEXT,
+        latitude      REAL,
+        longitude     REAL,
+        risk_level    TEXT,
+        is_external   INTEGER DEFAULT 0,
+        properties    TEXT,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /* ── Relationship edges ────────────────────────────────────────
+       * Directed edges. from_node → to_node.
+       * For undirected (VICN, SRES): store both directions or use
+       * is_bidirectional=1 and query either direction.
+       * TST fields follow Wenzel et al. (2026) TST framework,
+       * re-mapped to asset-level propagation semantics.
+       */
+      `CREATE TABLE IF NOT EXISTS rel_edges (
+        id              TEXT PRIMARY KEY,
+        from_node       TEXT NOT NULL REFERENCES rel_nodes(id) ON DELETE CASCADE,
+        to_node         TEXT NOT NULL REFERENCES rel_nodes(id) ON DELETE CASCADE,
+        link_type       TEXT NOT NULL CHECK(link_type IN ('MECH','VICN','DEPS','EXPO','SRES')),
+        tst_type        TEXT CHECK(tst_type IN ('HTC','HCA','HPC','HIN')),
+        tst_spatial     TEXT CHECK(tst_spatial IN ('SO','SSP','SNO')),
+        tst_temporal    TEXT CHECK(tst_temporal IN ('TSI','TCO','TDI')),
+        is_bidirectional INTEGER DEFAULT 0,
+        distance_m      REAL,
+        confidence      REAL DEFAULT 0.5,
+        rule_id         TEXT,
+        source          TEXT DEFAULT 'auto',
+        notes           TEXT,
+        properties      TEXT,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /* ── Facility schedules ────────────────────────────────────────
+       * Per-facility operational hours, overriding type-level defaults.
+       * hours_json: [{ days:[0..6], open:8, close:18, peak_occ:0.9 }]
+       */
+      `CREATE TABLE IF NOT EXISTS facility_schedules (
+        facility_id   TEXT PRIMARY KEY REFERENCES facilities(id) ON DELETE CASCADE,
+        hours_json    TEXT NOT NULL,
+        always_active INTEGER DEFAULT 0,
+        notes         TEXT,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /* ── Environmental context ─────────────────────────────────────
+       * Auto-detected + manual project-level environmental flags.
+       * Used to activate context-specific rulebook entries.
+       */
+      `CREATE TABLE IF NOT EXISTS env_context (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        context_key TEXT NOT NULL UNIQUE,
+        value       TEXT,
+        source      TEXT DEFAULT 'auto',
+        confidence  REAL,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      /* ── Pinned OSM library layers ─────────────────────────────
+       * Tracks which OSM library layers the user has pinned to
+       * their project side panel. section_override lets the user
+       * move a layer to a different panel section than its default.
+       */
+      `CREATE TABLE IF NOT EXISTS pinned_layers (
+        layer_id         TEXT PRIMARY KEY,
+        section          TEXT NOT NULL CHECK(section IN ('natural','infrastructure')),
+        section_override TEXT CHECK(section_override IN ('natural','infrastructure',NULL)),
+        position         INTEGER DEFAULT 0,
+        pinned_at        DATETIME DEFAULT CURRENT_TIMESTAMP
       )`
     ];
 
@@ -236,7 +315,13 @@ class FacilityDatabaseManager {
       `CREATE INDEX IF NOT EXISTS idx_mf_group_type       ON map_features(feature_group, feature_type)`,
       `CREATE INDEX IF NOT EXISTS idx_mf_osm              ON map_features(osm_id)`,
       `CREATE INDEX IF NOT EXISTS idx_cl_visible          ON custom_layers(is_visible)`,
-      `CREATE INDEX IF NOT EXISTS idx_cl_zorder           ON custom_layers(z_order)`
+      `CREATE INDEX IF NOT EXISTS idx_cl_zorder           ON custom_layers(z_order)`,
+      `CREATE INDEX IF NOT EXISTS idx_rn_type             ON rel_nodes(node_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_rn_entity           ON rel_nodes(entity_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_re_from             ON rel_edges(from_node)`,
+      `CREATE INDEX IF NOT EXISTS idx_re_to               ON rel_edges(to_node)`,
+      `CREATE INDEX IF NOT EXISTS idx_re_link             ON rel_edges(link_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_re_tst              ON rel_edges(tst_type, tst_spatial, tst_temporal)`
     ];
 
     for (const stmt of indexes) {
@@ -751,6 +836,172 @@ class FacilityDatabaseManager {
         });
       });
     });
+  }
+
+  /* ============================================================
+   * RELATIONSHIP GRAPH — nodes, edges, schedules, env context
+   * ============================================================ */
+
+  async clearRelGraph() {
+    return new Promise((res, rej) => {
+      this.db.serialize(() => {
+        this.db.run('DELETE FROM rel_edges', () => {});
+        this.db.run('DELETE FROM rel_nodes', (err) => err ? rej(err) : res());
+      });
+    });
+  }
+
+  async upsertRelNode(node) {
+    return new Promise((res, rej) => {
+      this.db.run(`INSERT OR REPLACE INTO rel_nodes
+        (id, node_type, entity_id, name, category, latitude, longitude,
+         risk_level, is_external, properties, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`,
+        [node.id, node.node_type, node.entity_id||null, node.name,
+         node.category||null, node.latitude||null, node.longitude||null,
+         node.risk_level||null, node.is_external?1:0,
+         node.properties ? JSON.stringify(node.properties) : null],
+        (err) => err ? rej(err) : res());
+    });
+  }
+
+  async upsertRelEdge(edge) {
+    return new Promise((res, rej) => {
+      this.db.run(`INSERT OR REPLACE INTO rel_edges
+        (id, from_node, to_node, link_type, tst_type, tst_spatial, tst_temporal,
+         is_bidirectional, distance_m, confidence, rule_id, source, notes, properties, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`,
+        [edge.id, edge.from_node, edge.to_node, edge.link_type,
+         edge.tst_type||null, edge.tst_spatial||null, edge.tst_temporal||null,
+         edge.is_bidirectional?1:0, edge.distance_m||null,
+         edge.confidence??0.5, edge.rule_id||null,
+         edge.source||'auto', edge.notes||null,
+         edge.properties ? JSON.stringify(edge.properties) : null],
+        (err) => err ? rej(err) : res());
+    });
+  }
+
+  async getRelGraph() {
+    const nodes = await new Promise((res, rej) =>
+      this.db.all('SELECT * FROM rel_nodes', (err, rows) => err ? rej(err) : res(rows))
+    );
+    const edges = await new Promise((res, rej) =>
+      this.db.all('SELECT * FROM rel_edges', (err, rows) => err ? rej(err) : res(rows))
+    );
+    // Parse JSON fields
+    const parseProps = (r) => ({ ...r, properties: r.properties ? JSON.parse(r.properties) : {} });
+    return { nodes: nodes.map(parseProps), edges: edges.map(parseProps) };
+  }
+
+  async getRelGraphStats() {
+    const [nodeCount, edgeCount, byLink, byTst] = await Promise.all([
+      new Promise((res,rej) => this.db.get('SELECT COUNT(*) as n FROM rel_nodes', (e,r) => e?rej(e):res(r.n))),
+      new Promise((res,rej) => this.db.get('SELECT COUNT(*) as n FROM rel_edges', (e,r) => e?rej(e):res(r.n))),
+      new Promise((res,rej) => this.db.all(
+        'SELECT link_type, COUNT(*) as n FROM rel_edges GROUP BY link_type', (e,r) => e?rej(e):res(r))),
+      new Promise((res,rej) => this.db.all(
+        'SELECT tst_type, COUNT(*) as n FROM rel_edges GROUP BY tst_type', (e,r) => e?rej(e):res(r))),
+    ]);
+    return { nodeCount, edgeCount, byLink, byTst };
+  }
+
+  async updateRelEdge(id, updates) {
+    const allowed = ['link_type','tst_type','tst_spatial','tst_temporal',
+                     'confidence','notes','properties'];
+    const fields = [], params = [];
+    for (const [k,v] of Object.entries(updates)) {
+      if (!allowed.includes(k)) continue;
+      fields.push(`${k} = ?`);
+      params.push(k === 'properties' ? JSON.stringify(v) : v);
+    }
+    if (!fields.length) return;
+    params.push('CURRENT_TIMESTAMP', id);
+    return new Promise((res, rej) =>
+      this.db.run(`UPDATE rel_edges SET ${fields.join(', ')}, updated_at = ? WHERE id = ?`,
+        params, (err) => err ? rej(err) : res())
+    );
+  }
+
+  async upsertSchedule(facilityId, hoursJson, alwaysActive, notes) {
+    return new Promise((res, rej) =>
+      this.db.run(`INSERT OR REPLACE INTO facility_schedules
+        (facility_id, hours_json, always_active, notes, updated_at)
+        VALUES (?,?,?,?,CURRENT_TIMESTAMP)`,
+        [facilityId, JSON.stringify(hoursJson), alwaysActive?1:0, notes||null],
+        (err) => err ? rej(err) : res())
+    );
+  }
+
+  async getSchedule(facilityId) {
+    return new Promise((res, rej) =>
+      this.db.get('SELECT * FROM facility_schedules WHERE facility_id = ?', [facilityId],
+        (err, row) => {
+          if (err) return rej(err);
+          if (!row) return res(null);
+          res({ ...row, hours_json: JSON.parse(row.hours_json), always_active: !!row.always_active });
+        })
+    );
+  }
+
+  async setEnvContext(key, value, source, confidence) {
+    return new Promise((res, rej) =>
+      this.db.run(`INSERT OR REPLACE INTO env_context (context_key, value, source, confidence, updated_at)
+        VALUES (?,?,?,?,CURRENT_TIMESTAMP)`,
+        [key, value, source||'auto', confidence||1.0],
+        (err) => err ? rej(err) : res())
+    );
+  }
+
+  async getEnvContextAll() {
+    return new Promise((res, rej) =>
+      this.db.all('SELECT * FROM env_context', (err, rows) =>
+        err ? rej(err) : res(Object.fromEntries(rows.map(r => [r.context_key, r])))
+      )
+    );
+  }
+
+  /* ============================================================
+   * PINNED LAYERS — per-project OSM library layer pinning
+   * ============================================================ */
+
+  async getPinnedLayers() {
+    return new Promise((res, rej) =>
+      this.db.all(
+        'SELECT * FROM pinned_layers ORDER BY position ASC, pinned_at ASC',
+        (err, rows) => err ? rej(err) : res(rows || [])
+      )
+    );
+  }
+
+  async pinLayer(layerId, section, position) {
+    return new Promise((res, rej) =>
+      this.db.run(
+        `INSERT OR IGNORE INTO pinned_layers (layer_id, section, position, pinned_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+        [layerId, section, position || 0],
+        (err) => err ? rej(err) : res()
+      )
+    );
+  }
+
+  async unpinLayer(layerId) {
+    return new Promise((res, rej) =>
+      this.db.run(
+        'DELETE FROM pinned_layers WHERE layer_id = ?',
+        [layerId],
+        function (err) { err ? rej(err) : res(this.changes); }
+      )
+    );
+  }
+
+  async updatePinnedLayerSection(layerId, sectionOverride) {
+    return new Promise((res, rej) =>
+      this.db.run(
+        'UPDATE pinned_layers SET section_override = ? WHERE layer_id = ?',
+        [sectionOverride || null, layerId],
+        function (err) { err ? rej(err) : res(this.changes); }
+      )
+    );
   }
 
   close() {

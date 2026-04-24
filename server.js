@@ -1952,6 +1952,548 @@ function _kmlBounds(text) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// RELATIONSHIP GRAPH ROUTES
+// ════════════════════════════════════════════════════════════════
+
+const { computeRelationships, computeGraphMetrics,
+        DEFAULT_RULEBOOK, DEFAULT_SCHEDULES } = require('./relations-engine');
+
+// ── Environment context detection (OSM + slope heuristics) ────
+async function detectEnvContext(project, db) {
+  const geojson = project.area?.geojson;
+  if (!geojson) return;
+
+  const bbox = infraBbox(geojson);
+  if (!bbox) return;
+  const { south, north, west, east } = bbox;
+
+  // Coastal: check if bounding box touches coastline via OSM
+  try {
+    const coastQ = `[out:json][timeout:20];(way["natural"="coastline"](${south},${west},${north},${east}););out geom qt;`;
+    const coast  = await axios.post(OVERPASS_ENDPOINTS[0], coastQ,
+      { headers:{'Content-Type':'text/plain','User-Agent':'AEGIS-V3/1.0'}, timeout:25000 });
+    if (coast.data?.elements?.length > 0) {
+      await db.setEnvContext('coastal_surge', 'true', 'osm', 0.90);
+      logStatus('info', '[ENV] Coastal zone detected');
+    }
+  } catch { /* ignore */ }
+
+  // River/flood: major waterway in bbox
+  try {
+    const riverQ = `[out:json][timeout:15];(way["waterway"="river"](${south},${west},${north},${east}););out qt;`;
+    const river  = await axios.post(OVERPASS_ENDPOINTS[0], riverQ,
+      { headers:{'Content-Type':'text/plain','User-Agent':'AEGIS-V3/1.0'}, timeout:20000 });
+    if (river.data?.elements?.length > 0) {
+      await db.setEnvContext('flood_zone', 'true', 'osm', 0.85);
+      logStatus('info', '[ENV] Flood zone (river) detected');
+    }
+  } catch { /* ignore */ }
+
+  // Mountainous: use slope layer concept — approximate from bbox lat range
+  // (full DEM analysis would require server-side raster processing)
+  const latRange = north - south, lngRange = east - west;
+  if (latRange > 0 && lngRange > 0) {
+    // If bbox is small and in known mountain lat ranges — heuristic only
+    // Real slope detection from terrarium tiles is client-side
+    // Store a placeholder that client can override after slope render
+    await db.setEnvContext('slope_data_available', 'true', 'heuristic', 0.5);
+  }
+
+  // Industrial cluster: count industrial facilities
+  const rows = await new Promise((res, rej) =>
+    db.db.all(`SELECT COUNT(*) as n FROM facilities WHERE category IN ('chemical_plant','petroleum','storage_tank','waste')`,
+      (err, r) => err ? rej(err) : res(r))
+  );
+  if (rows[0]?.n >= 3) {
+    await db.setEnvContext('industrial_cluster', 'true', 'db', 0.80);
+    logStatus('info', `[ENV] Industrial cluster detected (${rows[0].n} facilities)`);
+  }
+}
+
+/**
+ * POST /api/projects/:id/relationships/compute
+ * Triggers full relationship computation. Clears existing graph first.
+ */
+app.post('/api/projects/:id/relationships/compute', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+
+    // Load all facilities
+    const facilities = await new Promise((resolve, reject) =>
+      db.db.all('SELECT * FROM facilities WHERE status = ? OR status IS NULL',
+        ['active'], (err, rows) => err ? reject(err) : resolve(rows))
+    );
+
+    if (facilities.length < 2) {
+      await db.close().catch(() => {});
+      return res.json({ ok: true, nodes: 0, edges: 0, message: 'Not enough facilities to compute relationships' });
+    }
+
+    // Detect + store environmental context
+    await detectEnvContext(project, db);
+    const envContext = await db.getEnvContextAll();
+
+    // Load per-facility schedule overrides
+    const schedRows = await new Promise((resolve, reject) =>
+      db.db.all('SELECT * FROM facility_schedules', (err, rows) => err ? reject(err) : resolve(rows))
+    );
+    const schedules = {};
+    for (const r of schedRows) {
+      schedules[r.facility_id] = { ...r, hours_json: JSON.parse(r.hours_json) };
+    }
+
+    // Compute
+    logStatus('info', `[REL] Computing relationships for ${facilities.length} facilities…`);
+    const { nodes, edges } = computeRelationships(facilities, envContext, null, schedules);
+    const metrics = computeGraphMetrics(nodes, edges);
+
+    // Persist to DB
+    await db.clearRelGraph();
+    for (const n of nodes) {
+      await db.upsertRelNode({ ...n, properties: { ...n.properties, ...metrics[n.id] } });
+    }
+    for (const e of edges) await db.upsertRelEdge(e);
+
+    logStatus('success', `[REL] Graph built: ${nodes.length} nodes, ${edges.length} edges`);
+    await db.close().catch(() => {});
+
+    res.json({ ok: true, nodes: nodes.length, edges: edges.length, env_contexts: Object.keys(envContext).filter(k => envContext[k]?.value === 'true') });
+  } catch (err) {
+    logStatus('error', `[REL] Compute failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/projects/:id/relationships/graph — full graph for visualization */
+app.get('/api/projects/:id/relationships/graph', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const graph   = await db.getRelGraph();
+    const stats   = await db.getRelGraphStats();
+    const env     = await db.getEnvContextAll();
+    await db.close().catch(() => {});
+    res.json({ ...graph, stats, env_context: env });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/projects/:id/relationships/stats */
+app.get('/api/projects/:id/relationships/stats', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db    = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const stats = await db.getRelGraphStats();
+    await db.close().catch(() => {});
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PATCH /api/projects/:id/relationships/edges/:edgeId — manual override */
+app.patch('/api/projects/:id/relationships/edges/:edgeId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.updateRelEdge(req.params.edgeId, req.body);
+    await db.close().catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/projects/:id/relationships/rulebook */
+app.get('/api/projects/:id/relationships/rulebook', requireAuth, async (req, res) => {
+  res.json({ rules: DEFAULT_RULEBOOK, schedules: DEFAULT_SCHEDULES });
+});
+
+/** PUT /api/projects/:id/relationships/schedule/:facilityId */
+app.put('/api/projects/:id/relationships/schedule/:facilityId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const { hours_json, always_active, notes } = req.body;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.upsertSchedule(req.params.facilityId, hours_json, always_active, notes);
+    await db.close().catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/projects/:id/relationships/env-context — manual override */
+app.post('/api/projects/:id/relationships/env-context', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    for (const [key, val] of Object.entries(req.body)) {
+      await db.setEnvContext(key, String(val), 'manual', 1.0);
+    }
+    await db.close().catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// LAND USE ROUTES
+// ════════════════════════════════════════════════════════════════
+
+const LANDUSE_QUERY = (bb) => `[out:json][timeout:60];
+(
+  way["landuse"~"^(forest|residential|commercial|industrial|farmland|meadow|military|scrub|salt_pond)"](${bb});
+  way["natural"~"^(wood|water|wetland|grassland|scrub|bare_rock|scree|sand|beach)"](${bb});
+  relation["landuse"~"^(forest|residential|commercial|industrial|farmland|military)"](${bb});
+  relation["natural"~"^(wood|water|wetland)"](${bb});
+);
+out geom qt;`;
+
+app.get('/api/projects/:id/landuse', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+
+    // Return from DB unless forced refresh
+    if (!req.query.refresh) {
+      const count = await db.countMapFeatures('land_use', 'landuse');
+      if (count > 0) {
+        const gj = await db.getMapFeatures('land_use', 'landuse');
+        await db.close().catch(() => {});
+        return res.json(gj);
+      }
+    }
+
+    const bbox = infraBbox(project.area?.geojson);
+    if (!bbox) { await db.close().catch(()=>{}); return res.status(400).json({ error: 'No project area' }); }
+    const bb = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+
+    logStatus('info', `[LANDUSE] Fetching from Overpass for ${req.params.id.slice(0,8)}`);
+    const ovResp = await axios.post(
+      OVERPASS_ENDPOINTS[overpassEndpointIdx % OVERPASS_ENDPOINTS.length],
+      LANDUSE_QUERY(bb),
+      { headers:{'Content-Type':'text/plain','User-Agent':'AEGIS-V3/1.0'}, timeout: 65000 }
+    );
+
+    const features = landuseElementsToGeoJSON(ovResp.data.elements || []);
+    await db.upsertMapFeatures('land_use', 'landuse', features.features);
+    logStatus('success', `[LANDUSE] ${features.features.length} land use features stored`);
+    await db.close().catch(() => {});
+    res.json(features);
+  } catch (err) {
+    logStatus('error', `[LANDUSE] ${err.message}`);
+    res.json({ type:'FeatureCollection', features:[] });
+  }
+});
+
+/** Convert OSM way elements to GeoJSON polygons for land use */
+function landuseElementsToGeoJSON(elements) {
+  const features = [];
+  for (const el of elements) {
+    if (!el.geometry?.length) continue;
+    const coords = el.geometry.map(n => [n.lon, n.lat]);
+    // Only process closed ways (polygons)
+    const isClosed = coords.length >= 4 &&
+      coords[0][0] === coords[coords.length-1][0] &&
+      coords[0][1] === coords[coords.length-1][1];
+    if (!isClosed) continue;
+    const tags = el.tags || {};
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [coords] },
+      properties: {
+        osm_id:  String(el.id),
+        name:    tags.name || null,
+        landuse: tags.landuse || null,
+        natural: tags.natural || null,
+        kind:    tags.landuse || tags.natural || 'other',
+      }
+    });
+  }
+  return { type:'FeatureCollection', features };
+}
+
+/**
+ * POST /api/projects/:id/facilities/landuse-filter
+ * Returns facility IDs that fall within a buffer distance of a given land use type.
+ * Body: { landuse_type: 'forest', distance_m: 500 }
+ */
+app.post('/api/projects/:id/facilities/landuse-filter', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const { landuse_type, distance_m = 500 } = req.body;
+    if (!landuse_type) return res.status(400).json({ error: 'landuse_type required' });
+
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+
+    // Get land use polygons
+    const landuse = await db.getMapFeatures('land_use', 'landuse');
+    // Get all facilities
+    const facilities = await new Promise((resolve, reject) =>
+      db.db.all('SELECT id, latitude, longitude, name, category, risk_level FROM facilities', (err, rows) => err ? reject(err) : resolve(rows))
+    );
+    await db.close().catch(() => {});
+
+    // Filter land use by type
+    const typeFeatures = landuse.features.filter(f =>
+      f.properties?.landuse === landuse_type || f.properties?.natural === landuse_type || f.properties?.kind === landuse_type
+    );
+
+    if (!typeFeatures.length) {
+      return res.json({ matched_ids: [], count: 0, message: `No land use features of type "${landuse_type}" found. Run land use layer first.` });
+    }
+
+    // For each facility, check if it falls within distance_m of any polygon
+    const { haversine } = require('./relations-engine');
+    const distDeg = distance_m / 111320; // approximate degrees (for bbox pre-filter)
+    const matched = [];
+
+    for (const fac of facilities) {
+      const fLat = parseFloat(fac.latitude);
+      const fLng = parseFloat(fac.longitude);
+      if (isNaN(fLat) || isNaN(fLng)) continue;
+
+      let inRange = false;
+      for (const feat of typeFeatures) {
+        if (feat.geometry.type !== 'Polygon') continue;
+        const ring = feat.geometry.coordinates[0];
+
+        // Fast bbox pre-filter
+        const lngs = ring.map(c=>c[0]), lats = ring.map(c=>c[1]);
+        const bboxOk = fLng >= Math.min(...lngs) - distDeg && fLng <= Math.max(...lngs) + distDeg &&
+                       fLat >= Math.min(...lats) - distDeg && fLat <= Math.max(...lats) + distDeg;
+        if (!bboxOk) continue;
+
+        // Point-in-polygon check (inside = distance 0)
+        if (_serverPointInPoly([fLng, fLat], ring)) { inRange = true; break; }
+
+        // Distance to nearest edge vertex (approximate, fast)
+        const minDist = Math.min(...ring.map(v => haversine(fLat, fLng, v[1], v[0])));
+        if (minDist <= distance_m) { inRange = true; break; }
+      }
+
+      if (inRange) matched.push({ id: fac.id, name: fac.name, category: fac.category, risk_level: fac.risk_level, latitude: fac.latitude, longitude: fac.longitude });
+    }
+
+    res.json({ matched_ids: matched.map(m=>m.id), matched: matched, count: matched.length, landuse_type, distance_m });
+  } catch (err) {
+    logStatus('error', `[LANDUSE-FILTER] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function _serverPointInPoly(pt, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length-1; i < ring.length; j = i++) {
+    const [xi,yi] = ring[i], [xj,yj] = ring[j];
+    if (((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj-xi)*(pt[1]-yi)/(yj-yi)+xi)) inside = !inside;
+  }
+  return inside;
+}
+
+// ════════════════════════════════════════════════════════════════
+// OSM LIBRARY ROUTES
+// ════════════════════════════════════════════════════════════════
+
+const OSM_LIBRARY_QUERIES = {
+  // ── Natural ────────────────────────────────────────────────────
+  protected_areas:  bb => `[out:json][timeout:60];(relation["boundary"="protected_area"](${bb});way["boundary"="protected_area"](${bb}););out geom qt;`,
+  wetlands:         bb => `[out:json][timeout:50];(way["natural"="wetland"](${bb});relation["natural"="wetland"](${bb}););out geom qt;`,
+  forest:           bb => `[out:json][timeout:55];(way["landuse"="forest"](${bb});way["natural"="wood"](${bb});relation["landuse"="forest"](${bb});relation["natural"="wood"](${bb}););out geom qt;`,
+  scrubland:        bb => `[out:json][timeout:45];(way["natural"="scrub"](${bb});relation["natural"="scrub"](${bb}););out geom qt;`,
+  grassland:        bb => `[out:json][timeout:45];(way["natural"="grassland"](${bb});way["landuse"="meadow"](${bb});relation["natural"="grassland"](${bb}););out geom qt;`,
+  bare_rock:        bb => `[out:json][timeout:45];(way["natural"="bare_rock"](${bb});way["natural"="scree"](${bb});way["natural"="sand"](${bb});way["natural"="beach"](${bb}););out geom qt;`,
+  flood_prone:      bb => `[out:json][timeout:50];(way["natural"="floodplain"](${bb});way["flood_prone"="yes"](${bb});relation["natural"="floodplain"](${bb}););out geom qt;`,
+  mangroves:        bb => `[out:json][timeout:45];(way["natural"="wetland"]["wetland"="mangrove"](${bb});relation["natural"="wetland"]["wetland"="mangrove"](${bb}););out geom qt;`,
+  glaciers:         bb => `[out:json][timeout:45];(way["natural"="glacier"](${bb});way["natural"="snow"](${bb});relation["natural"="glacier"](${bb}););out geom qt;`,
+  water_bodies:     bb => `[out:json][timeout:50];(way["natural"="water"](${bb});relation["natural"="water"](${bb});way["landuse"="basin"](${bb}););out geom qt;`,
+  coastline:        bb => `[out:json][timeout:50];(way["natural"="coastline"](${bb}););out geom qt;`,
+  // ── Land Use ───────────────────────────────────────────────────
+  farmland:         bb => `[out:json][timeout:50];(way["landuse"~"^(farmland|orchard|greenhouse_horticulture|allotments|vineyard)"](${bb});relation["landuse"="farmland"](${bb}););out geom qt;`,
+  residential:      bb => `[out:json][timeout:50];(way["landuse"="residential"](${bb});relation["landuse"="residential"](${bb}););out geom qt;`,
+  recreation:       bb => `[out:json][timeout:50];(way["leisure"~"^(park|nature_reserve|pitch|golf_course|sports_centre)"](${bb});relation["leisure"~"^(park|nature_reserve)"](${bb});way["landuse"="recreation_ground"](${bb}););out geom qt;`,
+  cemetery:         bb => `[out:json][timeout:40];(way["landuse"="cemetery"](${bb});way["amenity"="grave_yard"](${bb});relation["landuse"="cemetery"](${bb}););out geom qt;`,
+  // ── Infrastructure / Risk ──────────────────────────────────────
+  industrial_zones: bb => `[out:json][timeout:50];(way["landuse"="industrial"](${bb});relation["landuse"="industrial"](${bb}););out geom qt;`,
+  military_zones:   bb => `[out:json][timeout:45];(way["landuse"="military"](${bb});relation["landuse"="military"](${bb}););out geom qt;`,
+  commercial_zones: bb => `[out:json][timeout:45];(way["landuse"~"^(commercial|retail)"](${bb});relation["landuse"~"^(commercial|retail)"](${bb}););out geom qt;`,
+  ports_harbors:    bb => `[out:json][timeout:45];(way["landuse"="port"](${bb});way["harbour"="yes"](${bb});relation["landuse"="port"](${bb});way["waterway"="dock"](${bb}););out geom qt;`,
+  airport_zones:    bb => `[out:json][timeout:50];(way["aeroway"~"^(aerodrome|runway|taxiway|apron)"](${bb});relation["aeroway"="aerodrome"](${bb}););out geom qt;`,
+  landfill:         bb => `[out:json][timeout:40];(way["landuse"="landfill"](${bb});way["waste"="landfill"](${bb});relation["landuse"="landfill"](${bb}););out geom qt;`,
+  quarry:           bb => `[out:json][timeout:40];(way["landuse"="quarry"](${bb});relation["landuse"="quarry"](${bb}););out geom qt;`,
+  construction:     bb => `[out:json][timeout:40];(way["landuse"="construction"](${bb});relation["landuse"="construction"](${bb}););out geom qt;`,
+  power_stations:   bb => `[out:json][timeout:45];(way["power"="plant"](${bb});way["power"="generator"](${bb});relation["power"="plant"](${bb}););out geom qt;`,
+  substations:      bb => `[out:json][timeout:40];(way["power"="substation"](${bb});relation["power"="substation"](${bb}););out geom qt;`,
+  pipelines:        bb => `[out:json][timeout:45];(way["man_made"="pipeline"](${bb}););out geom qt;`,
+  reservoirs:       bb => `[out:json][timeout:45];(way["landuse"="reservoir"](${bb});way["natural"="water"]["water"="reservoir"](${bb});relation["landuse"="reservoir"](${bb}););out geom qt;`,
+  healthcare_zones: bb => `[out:json][timeout:45];(way["amenity"~"^(hospital|clinic|doctors|pharmacy)"](${bb});relation["amenity"~"^(hospital|clinic)"](${bb}););out geom qt;`,
+  education_zones:  bb => `[out:json][timeout:45];(way["amenity"~"^(school|university|college|kindergarten)"](${bb});relation["amenity"~"^(school|university|college)"](${bb}););out geom qt;`,
+  emergency_services:bb=> `[out:json][timeout:40];(way["amenity"~"^(fire_station|police)"](${bb});relation["amenity"~"^(fire_station|police)"](${bb}););out geom qt;`,
+  fuel_storage:     bb => `[out:json][timeout:40];(way["man_made"="storage_tank"](${bb});way["industrial"~"^(oil|gas|fuel)"](${bb});relation["man_made"="storage_tank"](${bb}););out geom qt;`,
+  chemical_zones:   bb => `[out:json][timeout:45];(way["industrial"~"^(chemical|petrochemical|refinery)"](${bb});way["landuse"="industrial"]["industrial"~"^(chemical|petro)"](${bb}););out geom qt;`,
+  nuclear:          bb => `[out:json][timeout:40];(way["power"="plant"]["plant:source"="nuclear"](${bb});relation["power"="plant"]["plant:source"="nuclear"](${bb}););out geom qt;`,
+};
+
+/**
+ * GET /api/projects/:id/osm-library/:layerId
+ * Returns layer GeoJSON, fetching from Overpass if not cached in DB.
+ */
+app.get('/api/projects/:id/osm-library/:layerId', requireAuth, async (req, res) => {
+  const { id, layerId } = req.params;
+  if (!OSM_LIBRARY_QUERIES[layerId]) return res.status(400).json({ error: `Unknown OSM library layer: ${layerId}` });
+
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+
+    // Return from DB cache if present
+    const count = await db.countMapFeatures('osm_library', layerId);
+    if (count > 0) {
+      const gj = await db.getMapFeatures('osm_library', layerId);
+      await db.close().catch(() => {});
+      logStatus('info', `[OSM-LIB] Serving cached ${layerId} (${count} features) for ${id.slice(0,8)}`);
+      return res.json(gj);
+    }
+
+    const bbox = infraBbox(project.area?.geojson);
+    if (!bbox) { await db.close().catch(()=>{}); return res.status(400).json({ error: 'No project area defined' }); }
+    const bb = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+
+    logStatus('info', `[OSM-LIB] Fetching ${layerId} from Overpass for ${id.slice(0,8)}`);
+    const ovResp = await axios.post(
+      OVERPASS_ENDPOINTS[overpassEndpointIdx % OVERPASS_ENDPOINTS.length],
+      OSM_LIBRARY_QUERIES[layerId](bb),
+      { headers:{'Content-Type':'text/plain','User-Agent':'AEGIS-V3/1.0'}, timeout: 65000 }
+    );
+
+    const features = landuseElementsToGeoJSON(ovResp.data.elements || []);
+    if (features.features.length > 0) {
+      await db.upsertMapFeatures('osm_library', layerId, features.features);
+    }
+    logStatus('success', `[OSM-LIB] ${layerId}: ${features.features.length} features stored for ${id.slice(0,8)}`);
+    await db.close().catch(() => {});
+    res.json(features);
+  } catch (err) {
+    logStatus('error', `[OSM-LIB] ${layerId}: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/projects/:id/osm-library/:layerId/cache
+ */
+app.delete('/api/projects/:id/osm-library/:layerId/cache', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const removed = await db.clearMapFeatures('osm_library', req.params.layerId);
+    await db.close().catch(() => {});
+    logStatus('info', `[OSM-LIB] Cache cleared: ${req.params.layerId} (${removed} rows)`);
+    res.json({ cleared: true, removed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// PINNED LAYERS ROUTES
+// ════════════════════════════════════════════════════════════════
+
+/** GET /api/projects/:id/pinned-layers */
+app.get('/api/projects/:id/pinned-layers', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const rows = await db.getPinnedLayers();
+    await db.close().catch(() => {});
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/projects/:id/pinned-layers  body: { layer_id, section } */
+app.post('/api/projects/:id/pinned-layers', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const { layer_id, section } = req.body;
+    if (!layer_id) return res.status(400).json({ error: 'layer_id required' });
+    if (!OSM_LIBRARY_QUERIES[layer_id]) return res.status(400).json({ error: `Unknown layer: ${layer_id}` });
+    if (!['natural','infrastructure'].includes(section)) return res.status(400).json({ error: 'section must be natural or infrastructure' });
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.pinLayer(layer_id, section);
+    await db.close().catch(() => {});
+    res.json({ ok: true, layer_id, section });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PATCH /api/projects/:id/pinned-layers/:layerId  body: { section_override } */
+app.patch('/api/projects/:id/pinned-layers/:layerId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const { layerId } = req.params;
+    const { section_override } = req.body;
+    if (section_override && !['natural','infrastructure'].includes(section_override)) {
+      return res.status(400).json({ error: 'section_override must be natural or infrastructure' });
+    }
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    await db.updatePinnedLayerSection(layerId, section_override || null);
+    await db.close().catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/projects/:id/pinned-layers/:layerId */
+app.delete('/api/projects/:id/pinned-layers/:layerId', requireAuth, async (req, res) => {
+  try {
+    const project = await verifyOwnership(req, res);
+    if (!project) return;
+    const db = new FacilityDatabaseManager(project.db_path);
+    await db.initialize();
+    const removed = await db.unpinLayer(req.params.layerId);
+    await db.close().catch(() => {});
+    res.json({ ok: true, removed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
 // HEALTH CHECK
 // ════════════════════════════════════════════════════════════════
 
