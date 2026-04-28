@@ -89,5 +89,122 @@
     "area_name": "Ciudad de México,  México",
     "created_at": "2026-04-17T03:13:14.990Z",
     "updated_at": "2026-04-17T03:13:14.990Z"
+  },
+  {
+    "id": "d0e41818-c099-47cf-b255-30a3e618d678",
+    "name": "Jinshan",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "金山区,  上海市,  中国",
+    "created_at": "2026-04-17T09:00:10.563Z",
+    "updated_at": "2026-04-17T09:00:10.563Z"
+  },
+  {
+    "id": "0ec358ed-225b-4c42-99a4-bd472d2af413",
+    "name": "Jinshan",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "新北市,  臺灣",
+    "created_at": "2026-04-17T09:01:20.329Z",
+    "updated_at": "2026-04-17T09:01:20.329Z"
+  },
+  {
+    "id": "1a620cc6-df1d-416d-8ec4-1a5270ee11f6",
+    "name": "Brussel",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "Bruxelles - Brussel,  Brussel-Hoofdstad - Bruxelles-Capitale,  Région de Bruxelles-Capitale - Brussels Hoofdstedelijk Gewest",
+    "created_at": "2026-04-20T05:48:01.948Z",
+    "updated_at": "2026-04-20T05:49:02.425Z"
+  },
+  {
+    "id": "31562d5a-4e4d-4952-95d8-9dba3f2270c5",
+    "name": "Toulouse",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "Toulouse,  Haute-Garonne,  Occitanie",
+    "created_at": "2026-04-21T01:37:23.922Z",
+    "updated_at": "2026-04-21T01:39:40.311Z"
+  },
+  {
+    "id": "3ee37079-f0b5-4a0d-87cc-70733164e1b9",
+    "name": "PACA",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "Custom area",
+    "created_at": "2026-04-21T06:18:44.560Z",
+    "updated_at": "2026-04-21T06:18:44.560Z"
+  },
+  {
+    "id": "ae7a0a7f-f78d-4532-8f61-795b08e01526",
+    "name": "Hualien TEST",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "花蓮縣,  臺灣",
+    "created_at": "2026-04-23T09:55:05.255Z",
+    "updated_at": "2026-04-23T09:55:05.255Z"
+  },
+  {
+    "id": "70303a7d-c051-41f1-88c4-7f397e953c2e",
+    "name": "Jinshan",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "金山區,  中角,  新北市",
+    "created_at": "2026-04-24T03:19:56.310Z",
+    "updated_at": "2026-04-24T03:27:13.654Z"
+  },
+  {
+    "id": "1df26c75-6e0b-4a69-b62c-c9e36b75a4b1",
+    "name": "Jinshan 2",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "金山區,  中角,  新北市",
+    "created_at": "2026-04-24T03:51:48.412Z",
+    "updated_at": "2026-04-24T03:51:48.412Z"
+  },
+  {
+    "id": "fb2914ff-626d-4ea4-b34b-9821b1d9c5bb",
+    "name": "Bordeaux 2",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "Bordeaux,  Gironde,  Nouvelle-Aquitaine",
+    "created_at": "2026-04-24T03:53:03.265Z",
+    "updated_at": "2026-04-24T03:54:30.631Z"
+  },
+  {
+    "id": "b1223081-2b0a-4ac6-9d34-c23d0e9a11d3",
+    "name": "Istanbul",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "İstanbul,  Fatih,  İstanbul",
+    "created_at": "2026-04-27T04:38:27.692Z",
+    "updated_at": "2026-04-27T04:38:27.692Z"
+  },
+  {
+    "id": "8cc8e747-df74-457e-8a95-b5a3770e17c2",
+    "name": "Istanbul",
+    "mode": "simulation",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "İstanbul,  Marmara Bölgesi,  Türkiye",
+    "created_at": "2026-04-27T04:38:59.080Z",
+    "updated_at": "2026-04-27T04:38:59.080Z"
+  },
+  {
+    "id": "d9209d74-3da6-4dc6-84dd-f79aa2dcff58",
+    "name": "Pittsburgh",
+    "mode": "risk_analysis",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "Pittsburgh,  Allegheny County,  Pennsylvania",
+    "created_at": "2026-04-27T07:01:46.748Z",
+    "updated_at": "2026-04-27T07:01:46.748Z"
+  },
+  {
+    "id": "607fc1fa-c2a9-4012-8da6-993b08d72bb3",
+    "name": "Taoyuan",
+    "mode": "risk_analysis",
+    "owner_id": "66d21077-9437-4474-9d84-6d0051d55be7",
+    "area_name": "桃園市,  臺灣",
+    "created_at": "2026-04-27T07:03:58.196Z",
+    "updated_at": "2026-04-27T07:36:36.131Z"
   }
 ]

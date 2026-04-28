@@ -255,12 +255,23 @@ app.delete('/api/projects/:id', requireAuth, async (req, res) => {
 // ── Hazard Scale routes ───────────────────────────────────────────
 
 const DEFAULT_HAZARD_SCALE = {
-  hospital:'critical', clinic:'high', fire_station:'critical',
-  police:'critical', school:'high', gymnasium:'medium', shelter:'medium',
-  power_plant:'hazardous', substation:'hazardous', chemical_plant:'hazardous',
-  petroleum:'hazardous', water:'high', waste:'medium',
-  airport:'high', train_station:'medium', communication:'medium',
-  military:'hazardous', storage_tank:'hazardous',
+  // Critical facilities
+  hospital:'critical',     clinic:'high',          fire_station:'critical',
+  police:'critical',       school:'high',           gymnasium:'medium',
+  shelter:'medium',
+  // Hazardous / industrial
+  power_plant:'hazardous', substation:'hazardous',  chemical_plant:'hazardous',
+  petroleum:'hazardous',   water:'high',            waste:'medium',
+  nuclear:'critical',      fuel_storage:'hazardous',storage_tank:'hazardous',
+  cooling_tower:'hazardous',
+  // Transport & logistics
+  airport:'high',          train_station:'medium',  port:'medium',
+  // Comms & security
+  communication:'medium',  military:'hazardous',    telecom_tower:'medium',
+  // Infrastructure nodes
+  road_infra:'medium',     bridge:'high',           dam:'hazardous',
+  pipeline:'hazardous',    railway:'medium',
+  electricity_tower:'high',water_tower:'medium',    pumping_station:'high',
 };
 
 /** GET /api/projects/:id/hazard-scale */

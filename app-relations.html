@@ -14,6 +14,7 @@
   --green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#c084fc;
   --font:'Roboto Mono',monospace;
 }
+/* Theme overrides applied at boot from localStorage */
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden;}
 
 /* Top bar */
@@ -110,8 +111,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <span id="project-name" style="font-size:10px;color:var(--muted);letter-spacing:2px;"></span>
   <div class="tb-right">
     <span id="graph-stats"></span>
-    <a href="#" id="back-map-btn" class="tb-btn">← MAP</a>
-    <button class="tb-btn" onclick="resetCamera()">⌖ RESET VIEW</button>
+    <button id="back-map-btn" class="tb-btn" onclick="goBackToMap()">← MAP</button>
+    <button class="tb-btn" onclick="resetCamera()">RESET VIEW</button>
   </div>
 </div>
 
@@ -184,7 +185,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <div class="lp-section">
     <div class="lp-title">NODE TYPES</div>
     <div id="node-filters">
-      <div class="filter-btn" data-ntype="facility" onclick="toggleNodeFilter('facility',this)"><span class="filter-dot" style="background:#c8d0e0;"></span>Facilities</div>
+      <div class="filter-btn" data-ntype="facility"       onclick="toggleNodeFilter('facility',this)">      <span class="filter-dot" style="background:#c8d0e0;"></span>Facilities</div>
+      <div class="filter-btn" data-ntype="infrastructure" onclick="toggleNodeFilter('infrastructure',this)"><span class="filter-dot" style="background:#60a5fa;"></span>Infrastructure</div>
       <div class="filter-btn" data-ntype="natural_hazard" onclick="toggleNodeFilter('natural_hazard',this)"><span class="filter-dot" style="background:#f87171;"></span>Natural Hazards</div>
     </div>
   </div>
@@ -199,7 +201,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 
   <!-- Compute -->
   <div class="lp-section">
-    <button class="compute-btn" id="compute-btn" onclick="computeGraph()">⟳ COMPUTE GRAPH</button>
+    <button class="compute-btn" id="compute-btn" onclick="computeGraph()">COMPUTE GRAPH</button>
     <div id="compute-status" style="font-size:8px;color:var(--muted);margin-top:6px;letter-spacing:1px;"></div>
   </div>
 </div>
@@ -236,15 +238,86 @@ const projectId = params.get('project');
 const API       = location.hostname === 'localhost' ? 'http://localhost:3001' : location.origin;
 axios.defaults.withCredentials = true;
 
-// ── State ─────────────────────────────────────────────────────
-let graphData  = null;   // { nodes, edges, stats, env_context }
+// ── State (declared first so applyTheme's `if (scene)` guard is valid) ──────
+let graphData  = null;
 let scene, camera, renderer, raycaster, mouse;
-let nodeMeshes = [];     // { mesh, nodeId }
-let edgeLines  = [];     // { line, edgeId }
-let layoutMap  = {};     // nodeId → { x, y, z }  (raw metrics)
+let nodeMeshes = [];
+let edgeLines  = [];
+let layoutMap  = {};
+let _visibleEdgeCount = 0;
+
+// ── Theme ─────────────────────────────────────────────────────
+const THEMES = {
+  default: { bg:'#050810', panel:'rgba(11,15,28,.96)', card:'#0e1220',
+    text:'#c8d0e0', muted:'#5a6378', dim:'#3a4155',
+    border:'rgba(255,255,255,0.08)', border2:'rgba(255,255,255,0.16)', bodyBg:'#050810' },
+  light:   { bg:'#f0f4f8', panel:'rgba(255,255,255,.97)', card:'#e8eef5',
+    text:'#1e293b', muted:'#64748b', dim:'#94a3b8',
+    border:'rgba(0,0,0,0.12)', border2:'rgba(0,0,0,0.22)', bodyBg:'#e2e8f0' },
+  green:   { bg:'#021002', panel:'rgba(6,24,6,.96)', card:'#041204',
+    text:'#00e600', muted:'#009900', dim:'#006600',
+    border:'rgba(0,200,0,0.15)', border2:'rgba(0,200,0,0.28)', bodyBg:'#010801' },
+  blue:    { bg:'#020a14', panel:'rgba(6,18,32,.96)', card:'#071628',
+    text:'#bfdbfe', muted:'#60a5fa', dim:'#1d4ed8',
+    border:'rgba(59,130,246,0.18)', border2:'rgba(59,130,246,0.30)', bodyBg:'#020a14' },
+};
+
+let _themeName = 'default';
+function applyTheme(name) {
+  _themeName = name || 'default';
+  const t = THEMES[_themeName] || THEMES.default;
+  const r = document.documentElement;
+  r.style.setProperty('--bg',      t.bg);
+  r.style.setProperty('--panel',   t.panel);
+  r.style.setProperty('--card',    t.card);
+  r.style.setProperty('--text',    t.text);
+  r.style.setProperty('--muted',   t.muted);
+  r.style.setProperty('--dim',     t.dim);
+  r.style.setProperty('--border',  t.border);
+  r.style.setProperty('--border2', t.border2);
+  document.body.style.background = t.bodyBg;
+  // Update Three.js scene if already initialised
+  if (scene) {
+    const c = parseInt(t.bg.replace('#',''), 16) || 0x050810;
+    scene.background.setHex(c);
+    if (scene.fog) scene.fog.color.setHex(c);
+  }
+}
+
+// Apply saved theme immediately (before Three.js init)
+try {
+  const _prefs = JSON.parse(localStorage.getItem('aegis-workspace-prefs') || '{}');
+  applyTheme(_prefs.theme || 'default');
+} catch { applyTheme('default'); }
+
+// ── Geometry + material cache (shared across nodes) ───────────
+const _geoCache = new Map();
+function _getNodeGeo(nodeType, size) {
+  const s   = Math.round(size * 2) / 2; // bucket to 0.5 increments
+  const key = nodeType + '_' + s;
+  if (!_geoCache.has(key)) {
+    _geoCache.set(key, nodeType === 'infrastructure'
+      ? new THREE.OctahedronGeometry(s, 0)
+      : new THREE.SphereGeometry(s, 7, 5));   // 7×5 seg = 35 tri — fine at these sizes
+  }
+  return _geoCache.get(key);
+}
+const _matCache = new Map();
+function _getNodeMat(colorHex, nodeType) {
+  const key = colorHex + '_' + nodeType;
+  if (!_matCache.has(key)) {
+    const c = hexToRgb(colorHex);
+    _matCache.set(key, new THREE.MeshStandardMaterial({
+      color: c, emissive: c, emissiveIntensity: 0.3,
+      metalness: nodeType === 'infrastructure' ? 0.7 : 0.3,
+      roughness: nodeType === 'infrastructure' ? 0.3 : 0.5,
+    }));
+  }
+  return _matCache.get(key);
+}
 let activeFilters = { link:new Set(['MECH','VICN','DEPS','EXPO','SRES']),
                       tst: new Set(['HCA','HTC','HPC','HIN']),
-                      ntype:new Set(['facility','natural_hazard']) };
+                      ntype:new Set(['facility','infrastructure','natural_hazard']) };
 let selectedNodeId = null;
 let isDragging = false, isRightDragging = false;
 let prevMouse  = { x:0, y:0 };
@@ -252,8 +325,32 @@ let camTheta   = 0.4, camPhi = 1.0, camRadius = 500, camTarget = new THREE.Vecto
 
 // ── Colors ────────────────────────────────────────────────────
 const LINK_COLORS = { MECH:'#f59e0b', VICN:'#f87171', DEPS:'#60a5fa', EXPO:'#c084fc', SRES:'#4ade80' };
-const RISK_COLORS = { critical:'#ef4444', hazardous:'#f97316', high:'#fbbf24', medium:'#3b82f6', low:'#22c55e' };
+// RISK_COLORS is mutable — updated at boot from the project's hazard scale
+let RISK_COLORS = { critical:'#ef4444', hazardous:'#f97316', high:'#fbbf24', medium:'#3b82f6', low:'#22c55e' };
+const RISK_LEVEL_COLORS = { critical:'#ef4444', hazardous:'#f97316', high:'#fbbf24', medium:'#3b82f6', low:'#22c55e' };
 const NODE_TYPE_COLORS = { facility:'#c8d0e0', natural_hazard:'#f87171', infrastructure:'#60a5fa' };
+
+// ── MAP button ────────────────────────────────────────────────
+let _mapUrl = 'index.html';
+function goBackToMap() {
+  // If opened as a popup/new-tab from the map page, close ourselves back to it
+  if (window.opener && !window.opener.closed) {
+    window.close();
+  } else {
+    window.location.href = _mapUrl;
+  }
+}
+
+// ── Hazard scale loader ───────────────────────────────────────
+async function loadHazardScale() {
+  if (!projectId) return;
+  try {
+    const r = await axios.get(`${API}/api/projects/${projectId}/hazard-scale`);
+    // scale maps category → riskLevel; colour per level stays constant
+    // We expose scale on window for detail panel use
+    window._hazardScale = r.data.scale || {};
+  } catch { /* use defaults */ }
+}
 
 function hexToRgb(hex) {
   const r = parseInt(hex.slice(1,3),16)/255;
@@ -266,8 +363,10 @@ function hexToRgb(hex) {
 function initThree() {
   const canvas = document.getElementById('graph-canvas');
   scene    = new THREE.Scene();
-  scene.background = new THREE.Color(0x050810);
-  scene.fog        = new THREE.FogExp2(0x050810, 0.003);
+  const _t    = THEMES[_themeName] || THEMES.default;
+  const _bgHex = parseInt(_t.bg.replace('#',''), 16) || 0x050810;
+  scene.background = new THREE.Color(_bgHex);
+  scene.fog        = new THREE.FogExp2(_bgHex, 0.003);
 
   camera = new THREE.PerspectiveCamera(50, canvas.width/canvas.height, 0.1, 5000);
   updateCameraPosition();
@@ -432,9 +531,7 @@ function rebuildLayout() {
     if (pos) mesh.position.set(pos.x, pos.y, pos.z);
   }
 
-  // Rebuild edges
-  for (const { line } of edgeLines) scene.remove(line);
-  edgeLines = [];
+  // Rebuild edges (buildEdges clears old objects itself)
   buildEdges();
 }
 
@@ -449,17 +546,24 @@ function buildGraph() {
   // Build initial layout
   rebuildLayout();
 
-  // Create node meshes
+  // Create node meshes — shared geometry + material cache keeps object count low
   for (const node of nodes) {
-    const pos   = layoutMap[node.id];
+    const pos = layoutMap[node.id];
     if (!pos) continue;
-    const size  = node.is_external ? 5 : (3 + Math.min(12, (node.properties?.degree||0) * 0.8));
-    const color = node.is_external ? hexToRgb(RISK_COLORS[node.risk_level]||'#f87171')
-                                   : hexToRgb(RISK_COLORS[node.risk_level]||'#3b82f6');
-    const geo   = new THREE.SphereGeometry(size, 16, 12);
-    const mat   = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3,
-                                                   metalness:0.3, roughness:0.5 });
-    const mesh  = new THREE.Mesh(geo, mat);
+
+    let size;
+    if      (node.node_type === 'natural_hazard')  size = 7;
+    else if (node.node_type === 'infrastructure')   size = 4 + Math.min(8,  (node.properties?.degree||0) * 0.6);
+    else                                            size = 3 + Math.min(12, (node.properties?.degree||0) * 0.8);
+
+    let colorHex;
+    if      (node.node_type === 'natural_hazard')  colorHex = RISK_COLORS[node.risk_level] || NODE_TYPE_COLORS.natural_hazard;
+    else if (node.node_type === 'infrastructure')  colorHex = RISK_COLORS[node.risk_level] || NODE_TYPE_COLORS.infrastructure;
+    else                                           colorHex = RISK_COLORS[node.risk_level] || NODE_TYPE_COLORS.facility;
+
+    const geo  = _getNodeGeo(node.node_type, size);   // cached, shared
+    const mat  = _getNodeMat(colorHex, node.node_type); // cached, shared
+    const mesh = new THREE.Mesh(geo, mat);            // only the Mesh object is new
     mesh.position.set(pos.x, pos.y, pos.z);
     scene.add(mesh);
     nodeMeshes.push({ mesh, nodeId: node.id, node });
@@ -470,77 +574,70 @@ function buildGraph() {
 }
 
 function buildEdges() {
-  const { edges } = graphData;
-  const visibleLinkTypes = activeFilters.link;
-  const visibleTstTypes  = activeFilters.tst;
-  const visibleNodeTypes = activeFilters.ntype;
+  // Remove previous edge objects (at most 5)
+  for (const { line } of edgeLines) scene.remove(line);
+  edgeLines = [];
+  _visibleEdgeCount = 0;
 
-  for (const edge of edges) {
-    if (!visibleLinkTypes.has(edge.link_type)) continue;
-    if (edge.tst_type && !visibleTstTypes.has(edge.tst_type)) continue;
+  if (!graphData) return;
 
-    const fromNode = graphData.nodes.find(n => n.id === edge.from_node);
-    const toNode   = graphData.nodes.find(n => n.id === edge.to_node);
+  // O(1) node lookup
+  const nodeMap = new Map(graphData.nodes.map(n => [n.id, n]));
+
+  // Collect flat vertex arrays per link type — one LineSegments per type = 5 draw calls max
+  const buckets = {};
+  for (const type of Object.keys(LINK_COLORS)) buckets[type] = [];
+
+  for (const edge of graphData.edges) {
+    if (!activeFilters.link.has(edge.link_type)) continue;
+    if (edge.tst_type && !activeFilters.tst.has(edge.tst_type)) continue;
+
+    const fromNode = nodeMap.get(edge.from_node);
+    const toNode   = nodeMap.get(edge.to_node);
     if (!fromNode || !toNode) continue;
-    if (!visibleNodeTypes.has(fromNode.node_type)) continue;
-    if (!visibleNodeTypes.has(toNode.node_type))   continue;
+    if (!activeFilters.ntype.has(fromNode.node_type)) continue;
+    if (!activeFilters.ntype.has(toNode.node_type))   continue;
 
     const pA = layoutMap[edge.from_node];
     const pB = layoutMap[edge.to_node];
     if (!pA || !pB) continue;
 
-    const colorHex = LINK_COLORS[edge.link_type] || '#888';
-    const color    = hexToRgb(colorHex);
+    const bucket = buckets[edge.link_type];
+    if (!bucket) continue;
+    bucket.push(pA.x, pA.y, pA.z,  pB.x, pB.y, pB.z);
+    _visibleEdgeCount++;
+  }
 
-    // Curved line using quadratic bezier for better visual separation
-    const pts  = [];
-    const mid  = new THREE.Vector3((pA.x+pB.x)/2, (pA.y+pB.y)/2, (pA.z+pB.z)/2 + 20);
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(pA.x, pA.y, pA.z),
-      mid,
-      new THREE.Vector3(pB.x, pB.y, pB.z)
-    );
-    const geo  = new THREE.BufferGeometry().setFromPoints(curve.getPoints(12));
-    const mat  = new THREE.LineBasicMaterial({ color, transparent:true, opacity: edge.confidence || 0.6 });
-    const line = new THREE.Line(geo, mat);
+  // Build one LineSegments per populated link type
+  for (const [type, pts] of Object.entries(buckets)) {
+    if (!pts.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const col = hexToRgb(LINK_COLORS[type] || '#888');
+    const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.55 });
+    const line = new THREE.LineSegments(geo, mat);
     scene.add(line);
-    edgeLines.push({ line, edgeId: edge.id, edge });
+    edgeLines.push({ line, linkType: type });
   }
 }
 
 // ── Filter controls ───────────────────────────────────────────
 function toggleFilter(type, el) {
-  if (activeFilters.link.has(type)) {
-    activeFilters.link.delete(type); el.classList.add('off');
-  } else {
-    activeFilters.link.add(type); el.classList.remove('off');
-  }
-  for (const { line } of edgeLines) scene.remove(line);
-  edgeLines = [];
-  buildEdges();
+  if (activeFilters.link.has(type)) { activeFilters.link.delete(type); el.classList.add('off'); }
+  else                              { activeFilters.link.add(type);    el.classList.remove('off'); }
+  buildEdges(); // handles its own cleanup
 }
 
 function toggleTstFilter(type, el) {
-  if (activeFilters.tst.has(type)) {
-    activeFilters.tst.delete(type); el.classList.add('off');
-  } else {
-    activeFilters.tst.add(type); el.classList.remove('off');
-  }
-  for (const { line } of edgeLines) scene.remove(line);
-  edgeLines = [];
+  if (activeFilters.tst.has(type)) { activeFilters.tst.delete(type); el.classList.add('off'); }
+  else                             { activeFilters.tst.add(type);    el.classList.remove('off'); }
   buildEdges();
 }
 
 function toggleNodeFilter(type, el) {
-  if (activeFilters.ntype.has(type)) {
-    activeFilters.ntype.delete(type); el.classList.add('off');
-  } else {
-    activeFilters.ntype.add(type); el.classList.remove('off');
-  }
-  for (const { line } of edgeLines) scene.remove(line);
-  edgeLines = [];
+  if (activeFilters.ntype.has(type)) { activeFilters.ntype.delete(type); el.classList.add('off'); }
+  else                               { activeFilters.ntype.add(type);    el.classList.remove('off'); }
   buildEdges();
-  // Update node mesh visibility
   for (const { mesh, node } of nodeMeshes) {
     mesh.visible = activeFilters.ntype.has(node.node_type);
   }
@@ -563,7 +660,7 @@ function showNodeDetail(nodeId) {
     <div>
       <div class="dp-name">${h(node.name)}</div>
       <div class="dp-cat" style="color:${riskColor};margin-top:2px;">${h(node.category||node.node_type)} · ${h(node.risk_level||'?')}</div>
-      ${node.is_external ? '<div style="font-size:7px;letter-spacing:1px;color:#f87171;margin-top:2px;">⚠ EXTERNAL HAZARD NODE</div>' : ''}
+      ${node.is_external ? '<div style="font-size:7px;letter-spacing:1px;color:#f87171;margin-top:2px;">EXTERNAL HAZARD NODE</div>' : ''}
     </div>
     <div>
       <div class="dp-metric"><span class="dp-metric-label">DEGREE (total links)</span><span class="dp-metric-val">${p.degree||0}</span></div>
@@ -572,7 +669,7 @@ function showNodeDetail(nodeId) {
       <div class="dp-metric"><span class="dp-metric-label">RISK SCORE</span><span class="dp-metric-val">${(p.risk_score||0).toFixed(2)}</span></div>
       <div class="dp-metric"><span class="dp-metric-label">DEPENDENCY DEPTH</span><span class="dp-metric-val">${p.dep_depth||0}</span></div>
     </div>
-    ${node.latitude ? `<div style="font-size:8px;color:var(--muted);">📍 ${parseFloat(node.latitude).toFixed(5)}, ${parseFloat(node.longitude).toFixed(5)}</div>` : ''}
+    ${node.latitude ? `<div style="font-size:8px;color:var(--muted);">${parseFloat(node.latitude).toFixed(5)}, ${parseFloat(node.longitude).toFixed(5)}</div>` : ''}
     <div class="dp-edges">
       <div style="font-size:8px;letter-spacing:2px;color:var(--muted);margin-bottom:5px;">CONNECTIONS (${inEdges.length + outEdges.length})</div>
       ${[...outEdges.slice(0,6), ...inEdges.slice(0,6)].map(e => {
@@ -649,9 +746,8 @@ function handleFocusParam() {
 function updateStatusBar() {
   const { nodes, edges } = graphData;
   const visible_nodes = nodes.filter(n => activeFilters.ntype.has(n.node_type)).length;
-  const visible_edges = edgeLines.length;
   document.getElementById('sb-nodes').textContent = `${visible_nodes}/${nodes.length}`;
-  document.getElementById('sb-edges').textContent = `${visible_edges}/${edges.length}`;
+  document.getElementById('sb-edges').textContent = `${_visibleEdgeCount}/${edges.length}`;
   document.getElementById('graph-stats').textContent =
     `${nodes.length} nodes · ${edges.length} edges`;
 }
@@ -689,16 +785,16 @@ async function loadGraph() {
 async function computeGraph() {
   const btn = document.getElementById('compute-btn');
   const st  = document.getElementById('compute-status');
-  btn.disabled = true; btn.textContent = '⟳ COMPUTING…';
+  btn.disabled = true; btn.textContent = 'COMPUTING…';
   st.textContent = 'Detecting environment + running rule engine…';
   try {
     const r = await axios.post(`${API}/api/projects/${projectId}/relationships/compute`);
-    st.textContent = `✓ ${r.data.nodes} nodes, ${r.data.edges} edges`;
+    st.textContent = `OK: ${r.data.nodes} nodes, ${r.data.edges} edges`;
     await loadGraph();
   } catch (err) {
-    st.textContent = '✗ ' + (err.response?.data?.error || err.message);
+    st.textContent = 'ERROR: ' + (err.response?.data?.error || err.message);
   } finally {
-    btn.disabled = false; btn.textContent = '⟳ COMPUTE GRAPH';
+    btn.disabled = false; btn.textContent = 'COMPUTE GRAPH';
   }
 }
 
@@ -706,30 +802,39 @@ function h(s) { const d=document.createElement('div'); d.textContent=String(s||'
 
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
-  setProgress(10, 'Authenticating…');
   try {
-    await axios.get(API + '/api/auth/me');
-  } catch {
-    location.href = 'login.html'; return;
+    setProgress(10, 'Authenticating…');
+    try {
+      await axios.get(API + '/api/auth/me');
+    } catch {
+      location.href = 'login.html'; return;
+    }
+
+    if (!projectId) { location.href = 'index.html'; return; }
+
+    // Parallelise: init Three.js (sync) + fetch project metadata + fetch hazard scale
+    // This cuts 2 serial round-trips down to 1 parallel batch
+    setProgress(30, 'Loading…');
+    initThree(); // synchronous — runs immediately while requests are in flight
+    const [projResult] = await Promise.allSettled([
+      axios.get(`${API}/api/projects/${projectId}`),
+      loadHazardScale(),
+    ]);
+    if (projResult.status === 'fulfilled') {
+      document.getElementById('project-name').textContent = projResult.value.data.name;
+      _mapUrl = `app-map.html?project=${projectId}`;
+    }
+
+    setProgress(70, 'Loading graph…');
+    await loadGraph();
+
+    setProgress(100, 'Ready');
+  } catch (err) {
+    console.error('[BOOT] Fatal error:', err);
+    setProgress(100, 'Error — ' + (err.message || 'unknown'));
+  } finally {
+    setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 400);
   }
-
-  if (!projectId) { location.href = 'index.html'; return; }
-
-  setProgress(30, 'Loading project…');
-  try {
-    const r = await axios.get(`${API}/api/projects/${projectId}`);
-    document.getElementById('project-name').textContent = r.data.name;
-    document.getElementById('back-map-btn').href = `app-map.html?project=${projectId}`;
-  } catch { /* continue */ }
-
-  setProgress(60, 'Initialising 3D engine…');
-  initThree();
-
-  setProgress(85, 'Loading relationship graph…');
-  await loadGraph();
-
-  setProgress(100, 'Ready');
-  setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 300);
 }
 
 function setProgress(pct, msg) {

@@ -2012,6 +2012,21 @@ async function openOamBox(lat, lng) {
   }
 }
 
+// ── OAM high-res TMS tile layer ───────────────────────────────
+let _oamTmsLayer = null;
+
+function loadAerialTmsLayer(tmsUrl) {
+  // Remove any previous OAM tile layer
+  if (_oamTmsLayer) { map.removeLayer(_oamTmsLayer); _oamTmsLayer = null; }
+  // OAM TMS URLs are in {z}/{x}/{y} order — use tms:true for Leaflet's {z}/{x}/{-y}
+  _oamTmsLayer = L.tileLayer(tmsUrl, {
+    tms: true, maxZoom: 22, opacity: 1,
+    attribution: 'OpenAerialMap',
+  }).addTo(map);
+  // Fly map to the layer's area if we can parse the bbox from the current best
+  document.getElementById('oam-box').style.display = 'none';
+}
+
 // ── Server log stream (admin only) ───────────────────────────
 let _logWs = null;
 let _logOpen = false;
